@@ -1,0 +1,365 @@
+<!-- ============================================================
+     NEW / EDIT INITIATIVE MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-initiative">
+  <div class="modal wide">
+    <div class="modal-header">
+      <h3 id="modal-initiative-title">New Initiative</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-initiative')">close</span>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="init-edit-id">
+
+      <div class="form-group">
+        <label>Initiative Name</label>
+        <input type="text" id="init-name" placeholder="e.g. Social Determinants of Health">
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="init-description" rows="3" placeholder="Describe the policy or standard requirement..."></textarea>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label>Type</label>
+          <select id="init-type"></select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="init-priority"></select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="init-status"></select>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>Primary SCI</label>
+          <select id="init-primary-sci"></select>
+        </div>
+        <div class="form-group">
+          <label>Secondary SCI</label>
+          <select id="init-secondary-sci"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Applications</label>
+        <input type="hidden" id="init-applications-val">
+        <div class="ms-container" id="init-applications-ms"></div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>Venues</label>
+          <input type="hidden" id="init-venues-val">
+          <div class="ms-container" id="init-venues-ms"></div>
+        </div>
+        <div class="form-group">
+          <label>Roles / Disciplines Impacted</label>
+          <input type="hidden" id="init-roles-val">
+          <div class="ms-container" id="init-roles-ms"></div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Specialty / Service Line</label>
+        <input type="hidden" id="init-specialty-val">
+        <div class="ms-container" id="init-specialty-ms"></div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>System Sponsor</label>
+          <input type="text" id="init-sponsor" placeholder="System sponsor name">
+        </div>
+        <div class="form-group">
+          <label>Anticipated Go-Live Wave</label>
+          <select id="init-golive-wave"></select>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-initiative')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInitiative()">
+        <span class="material-icons-round">save</span> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     NEW / EDIT TASK MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-task">
+  <div class="modal wide">
+    <div class="modal-header">
+      <h3 id="modal-task-title">New Task</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-task')">close</span>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="task-edit-id">
+      <input type="hidden" id="task-initiative-id">
+
+      <div class="form-group">
+        <label>Task Description</label>
+        <textarea id="task-description" rows="3" placeholder="Describe the specific work item..."></textarea>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label>Module</label>
+          <select id="task-module"></select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="task-priority"></select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="task-status"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Primary Analyst</label>
+        <select id="task-primary-analyst"></select>
+      </div>
+
+      <div class="form-group">
+        <label>Additional Analysts</label>
+        <input type="hidden" id="task-addl-analysts-val">
+        <div class="ms-container" id="task-addl-analysts-ms"></div>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label>Education Required?</label>
+          <select id="task-education"></select>
+        </div>
+        <div class="form-group">
+          <label>Build Review Complete?</label>
+          <select id="task-build-review"></select>
+        </div>
+        <div class="form-group">
+          <label>Build Review Date</label>
+          <input type="date" id="task-build-date">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Resolution Date</label>
+        <input type="date" id="task-resolution-date">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-task')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTask()">
+        <span class="material-icons-round">save</span> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     ACTION ITEM MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-action-item">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-ai-title">Add Action Item</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-action-item')">close</span>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ai-edit-id">
+      <input type="hidden" id="ai-task-id">
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="ai-description" rows="2" placeholder="What needs to be done..."></textarea>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>Owner</label>
+          <select id="ai-owner"></select>
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="ai-due-date">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Status</label>
+        <select id="ai-status"></select>
+      </div>
+
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="ai-notes" rows="2" placeholder="Additional context..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-action-item')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveActionItem()">
+        <span class="material-icons-round">save</span> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     DOCUMENT LINK MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-document">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Link Document</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-document')">close</span>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="doc-init-id">
+
+      <div class="form-group">
+        <label>Document Name</label>
+        <input type="text" id="doc-name" placeholder="e.g. SDOH Flowsheet Requirements">
+      </div>
+
+      <div class="form-group">
+        <label>Document Type</label>
+        <select id="doc-type"></select>
+      </div>
+
+      <div class="form-group">
+        <label>URL</label>
+        <input type="text" id="doc-url" placeholder="https://...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-document')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDocument()">
+        <span class="material-icons-round">link</span> Link Document
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     PROMOTE FROM PIPELINE MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-promote">
+  <div class="modal wide">
+    <div class="modal-header">
+      <h3>Promote to Initiative</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-promote')">close</span>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="promote-row">
+
+      <div class="form-group">
+        <label>Initiative Name (from Pipeline)</label>
+        <input type="text" id="promote-name">
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="promote-description" rows="2"></textarea>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label>Type</label>
+          <select id="promote-type"></select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="promote-priority"></select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <input type="text" value="Not Started" readonly style="opacity:0.7;">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>Primary SCI</label>
+          <select id="promote-sci"></select>
+        </div>
+        <div class="form-group">
+          <label>Secondary SCI</label>
+          <select id="promote-sci2"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Applications</label>
+        <input type="hidden" id="promote-apps-val">
+        <div class="ms-container" id="promote-apps-ms"></div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>Venues</label>
+          <input type="hidden" id="promote-venues-val">
+          <div class="ms-container" id="promote-venues-ms"></div>
+        </div>
+        <div class="form-group">
+          <label>Roles / Disciplines Impacted</label>
+          <input type="hidden" id="promote-roles-val">
+          <div class="ms-container" id="promote-roles-ms"></div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Specialty / Service Line</label>
+        <input type="hidden" id="promote-specialty-val">
+        <div class="ms-container" id="promote-specialty-ms"></div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label>System Sponsor</label>
+          <input type="text" id="promote-sponsor">
+        </div>
+        <div class="form-group">
+          <label>Anticipated Go-Live Wave</label>
+          <select id="promote-golive-wave"></select>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-promote')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePromote()">
+        <span class="material-icons-round">publish</span> Create Initiative
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     DELETE CONFIRMATION MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="modal-confirm-delete">
+  <div class="modal" style="width:400px;">
+    <div class="modal-header">
+      <h3>Confirm Delete</h3>
+      <span class="modal-close material-icons-round" onclick="closeModal('modal-confirm-delete')">close</span>
+    </div>
+    <div class="modal-body">
+      <p id="delete-confirm-msg" style="font-size:14px;line-height:1.5;"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-confirm-delete')">Cancel</button>
+      <button class="btn btn-danger" id="delete-confirm-btn">
+        <span class="material-icons-round">delete</span> Delete
+      </button>
+    </div>
+  </div>
+</div>

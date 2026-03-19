@@ -1,0 +1,2049 @@
+// ============================================================
+// PRCC v2 — ScriptViews: All View Rendering
+// ============================================================
+
+// ============================================================
+// COMMAND VIEW — Kanban/List + My Tasks Panel
+// ============================================================
+
+function buildFilterDropdown(type, label, options, selected) {
+  var count = selected.length;
+  var btnClass = count > 0 ? 'filter-btn has-selection' : 'filter-btn';
+  var countBadge = count > 0 ? ' <span class="filter-count">' + count + '</span>' : '';
+
+  var html = '<div class="filter-dropdown-wrap">';
+  html += '<div class="' + btnClass + '" onclick="toggleFilterPopover(\'filter-popover-' + type + '\')">';
+  html += '<span class="material-icons-round">filter_list</span> ' + esc(label) + countBadge;
+  html += '</div>';
+  html += '<div class="filter-popover" id="filter-popover-' + type + '">';
+  html += '<input type="text" class="filter-popover-search" placeholder="Search ' + esc(label) + '…" oninput="filterPopoverSearch(this,\'filter-popover-' + type + '\')">';
+
+  options.forEach(function(opt) {
+    var checked = selected.indexOf(opt) >= 0 ? ' checked' : '';
+    html += '<label><input type="checkbox" value="' + esc(opt) + '"' + checked + '> ' + esc(opt) + '</label>';
+  });
+
+  html += '<div class="filter-popover-actions">';
+  html += '<button onclick="clearDropdownFilter(\'' + type + '\')">Clear</button>';
+  html += '<button onclick="applyDropdownFilter(\'' + type + '\')">Apply</button>';
+  html += '</div>';
+  html += '</div></div>';
+  return html;
+}
+
+function loadCommandView() {
+  var area = document.getElementById('content-area');
+  var ribbon = document.getElementById('metrics-ribbon');
+  var c = APP.counts || {};
+
+  // Metrics ribbon
+  ribbon.innerHTML =
+    '<div class="metric-pill ' + (APP.activeFilter==='all'?'active':'') + '" data-filter="all" onclick="filterMetric(\'all\')"><span class="pill-val accent">' + (c.totalInitiatives||0) + '</span> Initiatives</div>' +
+    '<div class="metric-pill ' + (APP.activeFilter==='high'?'active':'') + '" data-filter="high" onclick="filterMetric(\'high\')"><span class="pill-val red">' + (c.highPriority||0) + '</span> High Priority Tasks</div>' +
+    '<div class="metric-pill ' + (APP.activeFilter==='unassigned'?'active':'') + '" data-filter="unassigned" onclick="filterMetric(\'unassigned\')"><span class="pill-val yellow">' + (c.unassigned||0) + '</span> Unassigned</div>' +
+    '<span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>' +
+    buildFilterDropdown('venue', 'Venue', APP.config.venues || [], APP.venueFilters) +
+    buildFilterDropdown('role', 'Role', APP.config.roles || [], APP.roleFilters) +
+    buildFilterDropdown('specialty', 'Specialty', APP.config.specialties || [], APP.specialtyFilters);
+
+  var inits = getFilteredInitiatives();
+
+  // Build split layout: main pane + My Tasks panel
+  var html = '<div class="home-split">';
+  html += '<div class="home-main-pane">';
+
+  if (APP.homeView === 'board') {
+    html += renderInitiativeBoard(inits);
+  } else {
+    html += renderInitiativeList(inits);
+  }
+  html += '</div>'; // end home-main-pane
+
+  html += renderMyTasksPanel();
+  html += '</div>'; // end home-split
+
+  area.innerHTML = html;
+
+  // Initialize My Tasks filter if needed
+  if (APP.myTasksFilter) {
+    var sel = document.getElementById('mytasks-person-select');
+    if (sel) sel.value = APP.myTasksFilter;
+    refreshMyTasksList();
+  }
+
+  // Load notes for any expanded tasks in accordion list view
+  if (APP.homeView === 'list') {
+    Object.keys(APP.listTaskExpanded).forEach(function(taskId) {
+      if (APP.listTaskExpanded[taskId]) {
+        loadAccordionNotes(taskId);
+      }
+    });
+  }
+}
+
+function renderInitiativeBoard(inits) {
+  var lanes = [
+    { key: 'Not Started', label: 'Not Started', items: [] },
+    { key: 'Define', label: 'Define', items: [] },
+    { key: 'Ready for Discussion', label: 'Ready for Discussion', items: [] },
+    { key: 'In Progress', label: 'In Progress', items: [] },
+    { key: 'Under Review', label: 'Under Review', items: [] },
+    { key: 'On Hold,Deferred', label: 'On Hold / Deferred', items: [] }
+  ];
+
+  inits.forEach(function(init) {
+    for (var li = 0; li < lanes.length; li++) {
+      if (lanes[li].key.split(',').indexOf(init.status) >= 0) {
+        lanes[li].items.push(init);
+        break;
+      }
+    }
+  });
+
+  var html = '<div style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="openNewInitiative()"><span class="material-icons-round">add</span> New Initiative</button></div>';
+  html += '<div class="board-container"><div class="board">';
+
+  lanes.forEach(function(lane) {
+    html += '<div class="board-lane" data-status="' + lane.key.split(',')[0] + '">';
+    html += '<div class="lane-header"><span class="lane-title">' + lane.label + '</span><span class="lane-count">' + lane.items.length + '</span></div>';
+    html += '<div class="lane-body">';
+    lane.items.forEach(function(init) {
+      html += renderInitiativeBoardCard(init);
+    });
+    if (!lane.items.length) {
+      html += '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No items</div>';
+    }
+    html += '</div></div>';
+  });
+
+  html += '</div></div>';
+  return html;
+}
+
+function renderInitiativeBoardCard(init) {
+  var openCount = countOpenTasks(init.id);
+  var totalCount = countTotalTasks(init.id);
+
+  var html = '<div class="board-card" onclick="openInitiativeDetail(\'' + init.id + '\')">';
+  html += '<div class="board-card-id">' + esc(init.id) + '</div>';
+  html += '<div class="board-card-title">' + esc(init.name) + '</div>';
+  html += '<div class="board-card-meta">';
+  if (init.type) html += typeTag(init.type);
+  html += priorityTag(init.priority);
+  html += '</div>';
+
+  // SCI(s)
+  if (init.primarySCI) {
+    html += '<div class="board-card-analyst">' + esc(init.primarySCI);
+    if (init.secondarySCI) html += ', ' + esc(init.secondarySCI);
+    html += '</div>';
+  }
+
+  // Task count badge
+  html += '<div class="task-count-badge" style="margin-top:6px;">';
+  html += '<span class="material-icons-round">task_alt</span> ';
+  html += openCount + ' open / ' + totalCount + ' total';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function sortInitiativeList(col) {
+  if (APP.listSortCol === col) {
+    APP.listSortAsc = !APP.listSortAsc;
+  } else {
+    APP.listSortCol = col;
+    APP.listSortAsc = true;
+  }
+  loadCommandView();
+}
+
+function getSortedInitiatives(inits) {
+  if (!APP.listSortCol) return inits;
+  var col = APP.listSortCol;
+  var asc = APP.listSortAsc;
+  var priorityRank = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+  var statusRank = {
+    'Not Started': 0, 'Define': 1, 'Ready for Discussion': 2, 'In Progress': 3,
+    'Under Review': 4, 'Completed': 5, 'On Hold': 6, 'Deferred': 7, 'Dismissed': 8
+  };
+
+  var sorted = inits.slice().sort(function(a, b) {
+    var va, vb;
+    switch (col) {
+      case 'id':
+        va = a.id || ''; vb = b.id || '';
+        break;
+      case 'name':
+        va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase();
+        break;
+      case 'type':
+        va = a.type || ''; vb = b.type || '';
+        break;
+      case 'priority':
+        va = priorityRank[a.priority] !== undefined ? priorityRank[a.priority] : 99;
+        vb = priorityRank[b.priority] !== undefined ? priorityRank[b.priority] : 99;
+        break;
+      case 'sci':
+        va = (a.primarySCI || '').toLowerCase(); vb = (b.primarySCI || '').toLowerCase();
+        break;
+      case 'wave':
+        va = a.goLiveWave || ''; vb = b.goLiveWave || '';
+        break;
+      case 'status':
+        va = statusRank[a.status] !== undefined ? statusRank[a.status] : 99;
+        vb = statusRank[b.status] !== undefined ? statusRank[b.status] : 99;
+        break;
+      case 'tasks':
+        va = countOpenTasks(a.id); vb = countOpenTasks(b.id);
+        break;
+      default:
+        va = ''; vb = '';
+    }
+    if (va < vb) return asc ? -1 : 1;
+    if (va > vb) return asc ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+
+function renderInitiativeList(inits) {
+  inits = getSortedInitiatives(inits);
+
+  function sortHeader(label, col) {
+    var arrow = '';
+    if (APP.listSortCol === col) {
+      arrow = ' <span class="sort-arrow">' + (APP.listSortAsc ? '&#9650;' : '&#9660;') + '</span>';
+    }
+    return '<th onclick="sortInitiativeList(\'' + col + '\')" style="cursor:pointer;">' + label + arrow + '</th>';
+  }
+
+  var html = '<div style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="openNewInitiative()"><span class="material-icons-round">add</span> New Initiative</button></div>';
+  html += '<table class="data-table accordion-table"><thead><tr>';
+  html += '<th style="width:30px;"></th>';
+  html += sortHeader('ID', 'id');
+  html += sortHeader('Name', 'name');
+  html += sortHeader('Type', 'type');
+  html += sortHeader('Priority', 'priority');
+  html += sortHeader('SCI', 'sci');
+  html += sortHeader('Wave', 'wave');
+  html += sortHeader('Status', 'status');
+  html += sortHeader('Tasks', 'tasks');
+  html += '</tr></thead><tbody>';
+
+  if (!inits.length) {
+    html += '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">No initiatives found</td></tr>';
+  }
+
+  inits.forEach(function(init) {
+    var openCount = countOpenTasks(init.id);
+    var totalCount = countTotalTasks(init.id);
+    var isExpanded = APP.listExpanded[init.id] || false;
+
+    // Initiative row
+    html += '<tr class="accordion-init-row">';
+    html += '<td class="accordion-chevron" onclick="event.stopPropagation();toggleListInitiative(\'' + esc(init.id) + '\')"><span class="material-icons-round accordion-arrow' + (isExpanded ? ' rotated' : '') + '">chevron_right</span></td>';
+    html += '<td class="col-id">' + esc(init.id) + '</td>';
+    html += '<td class="col-policy" style="cursor:pointer;" onclick="openInitiativeDetail(\'' + init.id + '\')">' + esc(init.name) + '</td>';
+    html += '<td>' + typeTag(init.type) + '</td>';
+    html += '<td>' + priorityTag(init.priority) + '</td>';
+    html += '<td>' + esc(init.primarySCI || '—') + '</td>';
+    html += '<td>' + esc(init.goLiveWave || '—') + '</td>';
+    html += '<td>' + initiativeStatusTag(init.status) + '</td>';
+    html += '<td><span class="task-count-badge"><span class="material-icons-round">task_alt</span> ' + openCount + '/' + totalCount + '</span></td>';
+    html += '</tr>';
+
+    // Expanded task sub-rows
+    if (isExpanded) {
+      var tasks = getTasksForInitiative(init.id);
+      if (!tasks.length) {
+        html += '<tr class="accordion-sub-row"><td></td><td colspan="8" style="color:var(--text-muted);font-size:12px;padding:10px 12px;">No tasks yet</td></tr>';
+      }
+      tasks.forEach(function(task) {
+        var taskExpanded = APP.listTaskExpanded[task.id] || false;
+        html += '<tr class="accordion-sub-row">';
+        html += '<td class="accordion-chevron" onclick="event.stopPropagation();toggleListTask(\'' + esc(task.id) + '\',\'' + esc(init.id) + '\')"><span class="material-icons-round accordion-arrow sub' + (taskExpanded ? ' rotated' : '') + '">chevron_right</span></td>';
+        html += '<td class="col-id" style="font-size:10px;">' + esc(task.id) + '</td>';
+        html += '<td colspan="4" class="mt-desc" style="cursor:pointer;" onclick="openTaskDetail(\'' + esc(task.id) + '\')">' + esc(task.description || task.id) + '</td>';
+        html += '<td>' + (task.primaryAnalyst ? esc(task.primaryAnalyst) : '<span style="color:var(--text-muted);">—</span>') + '</td>';
+        html += '<td>' + taskStatusTag(task.status) + '</td>';
+        html += '<td></td>';
+        html += '</tr>';
+
+        // Expanded notes area for this task
+        if (taskExpanded) {
+          html += '<tr class="accordion-note-row"><td></td><td colspan="8">';
+          html += '<div class="accordion-note-content" id="accordion-notes-' + esc(task.id) + '">';
+          html += '<div class="loading-wrap" style="padding:12px;"><div class="spinner"></div></div>';
+          html += '</div>';
+          html += '</td></tr>';
+        }
+      });
+    }
+  });
+
+  html += '</tbody></table>';
+  return html;
+}
+
+// ---- My Tasks Panel ----
+function renderMyTasksPanel() {
+  var paneClass = APP.myTasksPaneOpen ? '' : ' collapsed';
+  var people = APP.config ? (APP.config.people || []) : [];
+
+  var html = '<div class="home-tasks-pane' + paneClass + '" id="home-tasks-pane">';
+  html += '<div class="tasks-pane-header">';
+  html += '<div class="tasks-pane-header-content" style="display:flex;align-items:center;gap:8px;">';
+  html += '<div class="tasks-pane-title"><span class="material-icons-round">checklist</span> My Work</div>';
+  html += '</div>';
+  html += '<button class="pane-toggle-btn" onclick="toggleTasksPane()" title="Toggle"><span class="material-icons-round">chevron_right</span></button>';
+  html += '</div>';
+
+  html += '<div class="mytasks-filter">';
+  html += '<select id="mytasks-person-select" onchange="APP.myTasksFilter=this.value;refreshMyTasksList();">';
+  html += '<option value="">— Select person —</option>';
+  people.forEach(function(p) {
+    html += '<option value="' + esc(p) + '"' + (APP.myTasksFilter === p ? ' selected' : '') + '>' + esc(p) + '</option>';
+  });
+  html += '</select>';
+  html += '</div>';
+
+  // Toggle bar: Tasks | Action Items
+  var taskCount = 0;
+  var aiCount = 0;
+  if (APP.myTasksFilter) {
+    var person = APP.myTasksFilter;
+    var openStatuses = ['Identified', 'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing', 'On Hold'];
+    taskCount = APP.tasks.filter(function(t) {
+      if (openStatuses.indexOf(t.status) < 0) return false;
+      if (t.primaryAnalyst === person) return true;
+      if (t.additionalAnalysts && String(t.additionalAnalysts).split(',').map(function(a){return a.trim();}).indexOf(person) >= 0) return true;
+      return false;
+    }).length;
+    aiCount = (APP.actionItems || []).filter(function(a) {
+      return a.owner === person && a.status !== 'Complete';
+    }).length;
+  }
+
+  html += '<div class="mytasks-mode-toggle" id="mytasks-mode-toggle">';
+  html += '<button class="mode-toggle-btn' + (APP.myTasksMode === 'tasks' ? ' active' : '') + '" onclick="switchMyTasksMode(\'tasks\')">Tasks';
+  if (APP.myTasksFilter) html += ' <span class="mode-badge">' + taskCount + '</span>';
+  html += '</button>';
+  html += '<button class="mode-toggle-btn' + (APP.myTasksMode === 'actions' ? ' active' : '') + '" onclick="switchMyTasksMode(\'actions\')">Action Items';
+  if (APP.myTasksFilter) html += ' <span class="mode-badge">' + aiCount + '</span>';
+  html += '</button>';
+  html += '</div>';
+
+  html += '<div class="tasks-pane-body" id="mytasks-body">';
+  if (APP.myTasksFilter) {
+    if (APP.myTasksMode === 'actions') {
+      html += buildMyActionItemsList(APP.myTasksFilter);
+    } else {
+      html += buildMyTasksList(APP.myTasksFilter);
+    }
+  } else {
+    html += '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">Select a person to see their work</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function toggleTasksPane() {
+  var pane = document.getElementById('home-tasks-pane');
+  if (pane) {
+    pane.classList.toggle('collapsed');
+    APP.myTasksPaneOpen = !pane.classList.contains('collapsed');
+  }
+}
+
+function refreshMyTasksList() {
+  var body = document.getElementById('mytasks-body');
+  if (!body) return;
+  if (!APP.myTasksFilter) {
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">Select a person to see their work</div>';
+    return;
+  }
+  if (APP.myTasksMode === 'actions') {
+    body.innerHTML = buildMyActionItemsList(APP.myTasksFilter);
+  } else {
+    body.innerHTML = buildMyTasksList(APP.myTasksFilter);
+  }
+  // Also update toggle badges
+  updateMyTasksToggleBadges();
+}
+
+function updateMyTasksToggleBadges() {
+  var toggle = document.getElementById('mytasks-mode-toggle');
+  if (!toggle || !APP.myTasksFilter) return;
+  var person = APP.myTasksFilter;
+  var openStatuses = ['Identified', 'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing', 'On Hold'];
+  var taskCount = APP.tasks.filter(function(t) {
+    if (openStatuses.indexOf(t.status) < 0) return false;
+    if (t.primaryAnalyst === person) return true;
+    if (t.additionalAnalysts && String(t.additionalAnalysts).split(',').map(function(a){return a.trim();}).indexOf(person) >= 0) return true;
+    return false;
+  }).length;
+  var aiCount = (APP.actionItems || []).filter(function(a) {
+    return a.owner === person && a.status !== 'Complete';
+  }).length;
+  var btns = toggle.querySelectorAll('.mode-toggle-btn');
+  if (btns[0]) { var badge = btns[0].querySelector('.mode-badge'); if (badge) badge.textContent = taskCount; }
+  if (btns[1]) { var badge2 = btns[1].querySelector('.mode-badge'); if (badge2) badge2.textContent = aiCount; }
+}
+
+function switchMyTasksMode(mode) {
+  APP.myTasksMode = mode;
+  // Re-render entire panel body + toggle
+  loadCommandView();
+}
+
+function buildMyTasksList(person) {
+  var openStatuses = ['Identified', 'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing', 'On Hold'];
+  var myTasks = APP.tasks.filter(function(t) {
+    if (openStatuses.indexOf(t.status) < 0) return false;
+    if (t.primaryAnalyst === person) return true;
+    if (t.additionalAnalysts && String(t.additionalAnalysts).split(',').map(function(a){return a.trim();}).indexOf(person) >= 0) return true;
+    return false;
+  });
+
+  if (!myTasks.length) {
+    return '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">No open tasks for ' + esc(person) + '</div>';
+  }
+
+  // Group by initiative
+  var groups = {};
+  myTasks.forEach(function(t) {
+    var initId = t.initiativeId;
+    if (!groups[initId]) groups[initId] = [];
+    groups[initId].push(t);
+  });
+
+  var html = '<div class="tasks-pane-count" style="margin-bottom:8px;">' + myTasks.length + ' open task' + (myTasks.length !== 1 ? 's' : '') + '</div>';
+  html += '<table class="mytask-tbl"><thead><tr><th>Initiative</th><th>Task</th><th>Status</th></tr></thead><tbody>';
+
+  Object.keys(groups).forEach(function(initId) {
+    var init = getInitiativeFromCache(initId);
+    var initName = init ? init.name : initId;
+    groups[initId].forEach(function(t, idx) {
+      html += '<tr>';
+      if (idx === 0) {
+        html += '<td class="mt-init" rowspan="' + groups[initId].length + '" onclick="openInitiativeDetail(\'' + esc(initId) + '\')">' + esc(initName) + '</td>';
+      }
+      html += '<td class="mt-desc" onclick="openTaskDetail(\'' + esc(t.id) + '\')">' + esc(t.description || t.id) + '</td>';
+      html += '<td>' + taskStatusTag(t.status) + '</td>';
+      html += '</tr>';
+    });
+  });
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function buildMyActionItemsList(person) {
+  var myAIs = (APP.actionItems || []).filter(function(a) {
+    return a.owner === person && a.status !== 'Complete';
+  });
+
+  if (!myAIs.length) {
+    return '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">No open action items for ' + esc(person) + '</div>';
+  }
+
+  // Sort: overdue first, then by due date
+  var todayStr = new Date().toISOString().split('T')[0];
+  myAIs.sort(function(a, b) {
+    var aOverdue = (a.dueDate && String(a.dueDate).split('T')[0] < todayStr) ? 0 : 1;
+    var bOverdue = (b.dueDate && String(b.dueDate).split('T')[0] < todayStr) ? 0 : 1;
+    if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+    var aDate = a.dueDate ? String(a.dueDate).split('T')[0] : '9999';
+    var bDate = b.dueDate ? String(b.dueDate).split('T')[0] : '9999';
+    return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
+  });
+
+  var statuses = ['Not Started', 'In Progress', 'Complete', 'Deferred'];
+
+  var html = '<div class="tasks-pane-count" style="margin-bottom:8px;">' + myAIs.length + ' open action item' + (myAIs.length !== 1 ? 's' : '') + '</div>';
+  html += '<table class="mytask-tbl"><thead><tr><th>Description</th><th>Task</th><th>Due</th><th>Status</th></tr></thead><tbody>';
+
+  myAIs.forEach(function(ai) {
+    // Find parent task
+    var task = getTaskFromCache(ai.taskId);
+    var taskDesc = task ? (task.description || task.id) : ai.taskId;
+    var dueStr = '';
+    var isOverdue = false;
+    if (ai.dueDate) {
+      var dueDateStr = String(ai.dueDate).split('T')[0];
+      dueStr = formatDate(dueDateStr);
+      isOverdue = dueDateStr < todayStr;
+    }
+
+    html += '<tr>';
+    html += '<td class="mt-desc" style="font-size:12px;">' + esc(ai.description || '—') + '</td>';
+    html += '<td class="mt-init" style="font-size:11px;cursor:pointer;" onclick="openTaskDetail(\'' + esc(ai.taskId) + '\')">' + esc(taskDesc) + '</td>';
+    html += '<td style="font-size:11px;white-space:nowrap;' + (isOverdue ? 'color:var(--red);font-weight:600;' : '') + '">' + (dueStr || '—') + '</td>';
+    html += '<td>';
+    html += '<select class="ai-quick-status" onchange="quickUpdateActionStatus(\'' + esc(ai.id) + '\',this.value)">';
+    statuses.forEach(function(s) {
+      html += '<option value="' + esc(s) + '"' + (ai.status === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+    });
+    html += '</select>';
+    html += '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  return html;
+}
+
+// ============================================================
+// INITIATIVE DETAIL VIEW
+// ============================================================
+
+function renderInitiativeDetail(id) {
+  var init = getInitiativeFromCache(id);
+  if (!init) {
+    document.getElementById('content-area').innerHTML = '<div class="empty-state"><p>Initiative not found</p></div>';
+    return;
+  }
+
+  document.getElementById('view-title').textContent = init.name;
+  document.getElementById('metrics-ribbon').innerHTML = '';
+
+  var tasks = getTasksForInitiative(id);
+  var openCount = tasks.filter(function(t) { return ['Closed - Completed','Closed - Deferred','Dismissed'].indexOf(t.status) < 0; }).length;
+
+  var html = '<div class="detail-back" onclick="navigate(\'command\')"><span class="material-icons-round">arrow_back</span> Back to Command View</div>';
+
+  html += '<div class="detail-header">';
+  html += '<h2>' + esc(init.name) + '</h2>';
+  html += '<div class="detail-header-meta">';
+  html += '<span class="board-card-id">' + esc(init.id) + '</span> ';
+  html += initiativeStatusTag(init.status) + ' ';
+  html += priorityTag(init.priority) + ' ';
+  if (init.type) html += typeTag(init.type) + ' ';
+  html += '<button class="btn btn-ghost btn-sm" onclick="openEditInitiative(\'' + id + '\')"><span class="material-icons-round">edit</span> Edit</button> ';
+  html += '<button class="btn btn-danger btn-sm" onclick="confirmDeleteInitiative(\'' + id + '\')"><span class="material-icons-round">delete</span></button>';
+  html += '</div></div>';
+
+  // Tabs — Tasks (default), Notes, Details, Documents
+  html += '<div class="detail-tabs">';
+  html += '<div class="detail-tab active" data-tab="tasks" onclick="switchInitTab(this,\'tasks\',\'' + id + '\')">Tasks (' + tasks.length + ')</div>';
+  html += '<div class="detail-tab" data-tab="notes" onclick="switchInitTab(this,\'notes\',\'' + id + '\')">Notes</div>';
+  html += '<div class="detail-tab" data-tab="details" onclick="switchInitTab(this,\'details\',\'' + id + '\')">Details</div>';
+  html += '<div class="detail-tab" data-tab="docs" onclick="switchInitTab(this,\'docs\',\'' + id + '\')">Documents</div>';
+  html += '</div>';
+
+  html += '<div class="detail-grid">';
+  html += '<div id="init-tab-content">';
+  html += renderInitTasksTab(id);
+  html += '</div>';
+  html += '<div>';
+  html += renderInitSidebar(init, openCount, tasks.length);
+  html += '</div>';
+  html += '</div>';
+
+  document.getElementById('content-area').innerHTML = html;
+}
+
+function switchInitTab(el, tab, initId) {
+  document.querySelectorAll('.detail-tab').forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  var content = document.getElementById('init-tab-content');
+  var init = getInitiativeFromCache(initId);
+
+  switch(tab) {
+    case 'tasks': content.innerHTML = renderInitTasksTab(initId); break;
+    case 'notes': loadInitiativeNotes(initId); break;
+    case 'details': content.innerHTML = renderInitOverviewTab(init); break;
+    case 'docs': loadInitiativeDocuments(initId); break;
+  }
+}
+
+function renderInitOverviewTab(init) {
+  var html = '';
+  html += '<div class="field-display"><div class="field-label">Description</div><div class="field-value">' + esc(init.description || '') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Applications</div><div class="field-value">' + renderPills(init.applications, 'pill-accent') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Venues</div><div class="field-value">' + renderPills(init.venues, 'pill-teal') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Roles / Disciplines Impacted</div><div class="field-value">' + renderPills(init.rolesImpacted, 'pill-purple') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Specialty / Service Line</div><div class="field-value">' + renderPills(init.specialtyServiceLine, 'pill-orange') + '</div></div>';
+
+  if (init.goLiveWave) {
+    html += '<div class="field-display"><div class="field-label">Anticipated Go-Live Wave</div><div class="field-value"><span class="tag tag-accent">' + esc(init.goLiveWave) + '</span></div></div>';
+  }
+
+  return html;
+}
+
+function renderInitSidebar(init, openCount, totalCount) {
+  var html = '<div class="sidebar-card">';
+  html += '<div class="sidebar-card-title">Details</div>';
+  html += '<div class="prop-row"><span class="prop-label">Status</span><span class="prop-value">' + initiativeStatusTag(init.status) + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Priority</span><span class="prop-value">' + priorityTag(init.priority) + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Type</span><span class="prop-value">' + esc(init.type || '—') + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Primary SCI</span><span class="prop-value">' + esc(init.primarySCI || '—') + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Secondary SCI</span><span class="prop-value">' + esc(init.secondarySCI || '—') + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">System Sponsor</span><span class="prop-value">' + esc(init.systemSponsor || '—') + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Go-Live Wave</span><span class="prop-value">' + esc(init.goLiveWave || '—') + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="sidebar-card">';
+  html += '<div class="sidebar-card-title">Tasks</div>';
+  html += '<div class="prop-row"><span class="prop-label">Open</span><span class="prop-value">' + openCount + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Total</span><span class="prop-value">' + totalCount + '</span></div>';
+  if (totalCount > 0) {
+    var pct = Math.round(((totalCount - openCount) / totalCount) * 100);
+    html += '<div style="margin-top:8px;"><div class="workload-bar"><div class="workload-fill" style="width:' + pct + '%;background:var(--green);"></div></div>';
+    html += '<div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:4px;">' + pct + '% complete</div></div>';
+  }
+  html += '</div>';
+
+  html += '<div class="sidebar-card">';
+  html += '<div class="sidebar-card-title">Dates</div>';
+  html += '<div class="prop-row"><span class="prop-label">Created</span><span class="prop-value">' + formatDate(init.createdDate) + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Updated</span><span class="prop-value">' + formatDate(init.updatedDate) + '</span></div>';
+  html += '</div>';
+  return html;
+}
+
+function renderInitTasksTab(initId) {
+  var tasks = getTasksForInitiative(initId);
+
+  var html = '<div class="section-header"><h4>Tasks</h4>';
+  html += '<button class="btn btn-primary btn-sm" onclick="openNewTask(\'' + initId + '\')"><span class="material-icons-round">add</span> Add Task</button>';
+  html += '</div>';
+
+  if (!tasks.length) {
+    html += '<div class="empty-state" style="padding:24px;"><span class="material-icons-round">assignment</span><p>No tasks yet. Add your first task.</p></div>';
+    return html;
+  }
+
+  var statusOrder = ['Identified', 'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing', 'On Hold', 'Closed - Completed', 'Closed - Deferred', 'Dismissed'];
+
+  // Collect tasks whose status doesn't match any known status
+  var matchedIds = {};
+  statusOrder.forEach(function(st) {
+    var group = tasks.filter(function(t) { return t.status === st; });
+    if (!group.length) return;
+    group.forEach(function(t) { matchedIds[t.id] = true; });
+    html += '<div style="margin-bottom:16px;">';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">' + st + ' (' + group.length + ')</div>';
+    group.forEach(function(t) { html += renderTaskCard(t); });
+    html += '</div>';
+  });
+
+  // Render any tasks with unrecognized statuses so they aren't silently hidden
+  var unmatched = tasks.filter(function(t) { return !matchedIds[t.id]; });
+  if (unmatched.length) {
+    html += '<div style="margin-bottom:16px;">';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">Other (' + unmatched.length + ')</div>';
+    unmatched.forEach(function(t) { html += renderTaskCard(t); });
+    html += '</div>';
+  }
+  return html;
+}
+
+function renderTaskCard(t) {
+  var html = '<div class="task-card" onclick="openTaskDetail(\'' + t.id + '\')">';
+  html += '<div class="task-card-header">';
+  html += '<div class="task-card-desc">' + esc(t.description || 'Untitled Task') + '</div>';
+  html += '<div class="task-card-id">' + esc(t.id) + '</div>';
+  html += '</div>';
+  html += '<div class="task-card-meta">';
+  if (t.module) html += moduleTag(t.module);
+  html += priorityTag(t.priority);
+  html += taskStatusTag(t.status);
+  html += '</div>';
+  if (t.primaryAnalyst) {
+    var analysts = t.primaryAnalyst;
+    if (t.additionalAnalysts) analysts += ', ' + t.additionalAnalysts;
+    html += '<div class="task-card-analyst"><span class="material-icons-round" style="font-size:13px;vertical-align:middle;">assignment_ind</span> ' + esc(analysts) + '</div>';
+  }
+  if (t.openActionItems > 0) {
+    html += '<div class="task-card-actions-badge"><span class="material-icons-round" style="font-size:14px;">checklist</span> ' + t.openActionItems + ' open action item' + (t.openActionItems !== 1 ? 's' : '') + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ============================================================
+// TASK DETAIL VIEW
+// ============================================================
+
+function renderTaskDetail(taskId) {
+  var task = getTaskFromCache(taskId);
+  if (!task) {
+    document.getElementById('content-area').innerHTML = '<div class="empty-state"><p>Task not found</p></div>';
+    return;
+  }
+
+  var init = getInitiativeFromCache(task.initiativeId);
+  var initName = init ? init.name : task.initiativeId;
+
+  document.getElementById('view-title').textContent = task.description || task.id;
+  document.getElementById('metrics-ribbon').innerHTML = '';
+
+  var html = '<div class="detail-back" onclick="openInitiativeDetail(\'' + esc(task.initiativeId) + '\')"><span class="material-icons-round">arrow_back</span> Back to ' + esc(initName) + '</div>';
+
+  html += '<div class="detail-header">';
+  html += '<h2>' + esc(task.description || 'Untitled Task') + '</h2>';
+  html += '<div class="detail-header-meta">';
+  html += '<span class="board-card-id">' + esc(task.id) + '</span> ';
+  html += taskStatusTag(task.status) + ' ';
+  html += priorityTag(task.priority) + ' ';
+  if (task.module) html += moduleTag(task.module) + ' ';
+  html += '<button class="btn btn-ghost btn-sm" onclick="openEditTask(\'' + taskId + '\')"><span class="material-icons-round">edit</span> Edit</button> ';
+  html += '<button class="btn btn-danger btn-sm" onclick="confirmDeleteTask(\'' + taskId + '\')"><span class="material-icons-round">delete</span></button>';
+  html += '</div></div>';
+
+  html += '<div class="detail-tabs">';
+  html += '<div class="detail-tab active" data-tab="notes" onclick="switchTaskTab(this,\'notes\',\'' + taskId + '\')">Notes</div>';
+  html += '<div class="detail-tab" data-tab="actions" onclick="switchTaskTab(this,\'actions\',\'' + taskId + '\')">Action Items</div>';
+  html += '<div class="detail-tab" data-tab="overview" onclick="switchTaskTab(this,\'overview\',\'' + taskId + '\')">Overview</div>';
+  html += '</div>';
+
+  html += '<div class="detail-grid">';
+  html += '<div id="task-tab-content"><div class="loading-wrap"><div class="spinner"></div></div></div>';
+  html += '<div>' + renderTaskSidebar(task, init) + '</div>';
+  html += '</div>';
+
+  document.getElementById('content-area').innerHTML = html;
+  // Default to Notes tab on load
+  loadTaskNotes(taskId);
+}
+
+function switchTaskTab(el, tab, taskId) {
+  document.querySelectorAll('.detail-tab').forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  var content = document.getElementById('task-tab-content');
+  var task = getTaskFromCache(taskId);
+
+  switch(tab) {
+    case 'overview': content.innerHTML = renderTaskOverviewTab(task); break;
+    case 'notes': loadTaskNotes(taskId); break;
+    case 'actions': loadTaskActionItems(taskId); break;
+  }
+}
+
+function renderTaskOverviewTab(task) {
+  var html = '';
+  html += '<div class="field-display"><div class="field-label">Description</div><div class="field-value">' + esc(task.description || '') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Module</div><div class="field-value">' + (task.module ? moduleTag(task.module) : '—') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Education Required</div><div class="field-value">' + esc(task.educationRequired || '—') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Build Review Complete</div><div class="field-value">' + esc(task.buildReviewComplete || '—') + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Build Review Meeting Date</div><div class="field-value">' + formatDate(task.buildReviewDate) + '</div></div>';
+  html += '<div class="field-display"><div class="field-label">Resolution Date</div><div class="field-value">' + formatDate(task.resolutionDate) + '</div></div>';
+  return html;
+}
+
+function renderTaskSidebar(task, init) {
+  var html = '<div class="sidebar-card">';
+  html += '<div class="sidebar-card-title">Assigned</div>';
+  html += '<div class="prop-row"><span class="prop-label">Primary Analyst</span><span class="prop-value">' + esc(task.primaryAnalyst || '—') + '</span></div>';
+  if (task.additionalAnalysts) {
+    html += '<div class="prop-row"><span class="prop-label">Additional</span><span class="prop-value" style="font-size:11px;">' + esc(task.additionalAnalysts) + '</span></div>';
+  }
+  html += '<div class="prop-row"><span class="prop-label">Status</span><span class="prop-value">' + taskStatusTag(task.status) + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Priority</span><span class="prop-value">' + priorityTag(task.priority) + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="sidebar-card">';
+  html += '<div class="sidebar-card-title">Build Info</div>';
+  html += '<div class="prop-row"><span class="prop-label">Review</span><span class="prop-value">' + esc(task.buildReviewComplete || '—') + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Meeting Date</span><span class="prop-value">' + formatDate(task.buildReviewDate) + '</span></div>';
+  html += '<div class="prop-row"><span class="prop-label">Resolution</span><span class="prop-value">' + formatDate(task.resolutionDate) + '</span></div>';
+  html += '</div>';
+
+  if (init) {
+    html += '<div class="sidebar-card">';
+    html += '<div class="sidebar-card-title">Initiative</div>';
+    html += '<div style="cursor:pointer;" onclick="openInitiativeDetail(\'' + esc(init.id) + '\')">';
+    html += '<div style="font-size:13px;font-weight:600;color:var(--accent);">' + esc(init.name) + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + esc(init.id) + '</div>';
+    html += '</div></div>';
+  }
+  return html;
+}
+
+// ---- Notes Tab ----
+function loadTaskNotes(taskId) {
+  var content = document.getElementById('task-tab-content');
+  content.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(notes) { renderNotesTab(taskId, notes); })
+    .withFailureHandler(function(err) { content.innerHTML = '<div class="empty-state"><p>Error: ' + err.message + '</p></div>'; })
+    .getTaskNotes(taskId);
+}
+
+function renderNotesTab(taskId, notes) {
+  var content = document.getElementById('task-tab-content');
+  var html = '';
+
+  // Inline add form
+  html += '<div class="note-add-form">';
+  html += '<div class="form-row form-row-2" style="margin-bottom:8px;">';
+  html += '<div class="form-group" style="margin-bottom:0;"><select id="note-type">';
+  (APP.config ? APP.config.noteTypes : ['General']).forEach(function(nt) {
+    html += '<option value="' + esc(nt) + '">' + esc(nt) + '</option>';
+  });
+  html += '</select></div>';
+  html += '<div class="form-group" style="margin-bottom:0;text-align:right;"><button class="btn btn-primary btn-sm" onclick="addNote(\'' + taskId + '\')"><span class="material-icons-round">add</span> Add Note</button></div>';
+  html += '</div>';
+  html += '<textarea id="note-text" rows="2" placeholder="Add a note..."></textarea>';
+  html += '</div>';
+
+  // Filter toggle
+  html += '<div class="filter-toggle">';
+  html += '<span class="filter-toggle-btn active" data-nf="all" onclick="filterNotes(this,\'all\')">All</span>';
+  html += '<span class="filter-toggle-btn" data-nf="mine" onclick="filterNotes(this,\'mine\')">Mine</span>';
+  html += '</div>';
+
+  notes.sort(function(a,b) { return (b.timestamp || '').localeCompare(a.timestamp || ''); });
+  html += '<div id="notes-list">';
+  if (!notes.length) {
+    html += '<div style="color:var(--text-muted);font-size:13px;padding:12px;">No notes yet.</div>';
+  }
+  notes.forEach(function(n) { html += renderNoteItem(n); });
+  html += '</div>';
+
+  content.innerHTML = html;
+}
+
+function renderNoteItem(n, context) {
+  var deleteAction;
+  if (context === 'initiative') {
+    deleteAction = 'deleteInitiativeNote(\'' + n.id + '\',\'' + (n.initiativeId || '') + '\')';
+  } else {
+    deleteAction = 'deleteNote(\'' + n.id + '\',\'' + (n.taskId || '') + '\')';
+  }
+  var html = '<div class="note-item" data-author="' + esc(n.author || '') + '">';
+  html += '<div class="note-item-header">';
+  html += '<div class="note-item-meta">' + noteTypeTag(n.noteType) + '<span>' + esc(n.author || '') + '</span><span>' + timeAgo(n.timestamp) + '</span></div>';
+  html += '<button class="note-delete-btn" onclick="' + deleteAction + '" title="Delete"><span class="material-icons-round">close</span></button>';
+  html += '</div>';
+  html += '<div class="note-item-text">' + esc(n.noteText || '') + '</div>';
+  html += '</div>';
+  return html;
+}
+
+function filterNotes(el, mode) {
+  document.querySelectorAll('.filter-toggle-btn[data-nf]').forEach(function(b) { b.classList.remove('active'); });
+  el.classList.add('active');
+  var myName = APP.myTasksFilter || '';
+  var myEmail = APP.config ? APP.config.currentUser : '';
+  document.querySelectorAll('.note-item').forEach(function(item) {
+    if (mode === 'mine') {
+      var author = item.dataset.author || '';
+      var isMatch = (myEmail && author === myEmail) || (myName && author === myName);
+      item.style.display = isMatch ? '' : 'none';
+    } else {
+      item.style.display = '';
+    }
+  });
+}
+
+// ---- Action Items Tab ----
+function loadTaskActionItems(taskId) {
+  var content = document.getElementById('task-tab-content');
+  content.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(items) { renderActionItemsTab(taskId, items); })
+    .withFailureHandler(function(err) { content.innerHTML = '<div class="empty-state"><p>Error: ' + err.message + '</p></div>'; })
+    .getTaskActionItems(taskId);
+}
+
+function renderActionItemsTab(taskId, items) {
+  APP.cachedActionItems = items;  // cache for edit lookups
+  var content = document.getElementById('task-tab-content');
+  var html = '<div class="section-header"><h4>Action Items</h4>';
+  html += '<button class="btn btn-primary btn-sm" onclick="openNewActionItem(\'' + taskId + '\')"><span class="material-icons-round">add</span> Add Action Item</button></div>';
+
+  html += '<div class="filter-toggle">';
+  html += '<span class="filter-toggle-btn active" data-aif="all" onclick="filterActionItems(this,\'all\')">All</span>';
+  html += '<span class="filter-toggle-btn" data-aif="mine" onclick="filterActionItems(this,\'mine\')">Mine</span>';
+  html += '</div>';
+
+  var open = items.filter(function(a) { return a.status !== 'Complete'; });
+  var done = items.filter(function(a) { return a.status === 'Complete'; });
+
+  html += '<div id="ai-list">';
+  if (!open.length && !done.length) {
+    html += '<div style="color:var(--text-muted);font-size:13px;padding:12px;">No action items yet.</div>';
+  }
+  open.forEach(function(a) { html += renderActionItem(a, false); });
+  if (done.length) {
+    html += '<div style="margin-top:16px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Completed (' + done.length + ')</div>';
+    done.forEach(function(a) { html += renderActionItem(a, true); });
+  }
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function renderActionItem(a, isComplete) {
+  var today = new Date().toISOString().split('T')[0];
+  var isOverdue = !isComplete && a.dueDate && String(a.dueDate).split('T')[0] < today;
+
+  var html = '<div class="ai-item" data-owner="' + esc(a.owner || '') + '">';
+  html += '<div class="ai-checkbox' + (isComplete ? ' checked' : '') + '" onclick="toggleActionComplete(\'' + a.id + '\',' + !isComplete + ',\'' + (a.taskId || '') + '\')"></div>';
+  html += '<div class="ai-content">';
+  html += '<div class="ai-desc' + (isComplete ? ' completed' : '') + '">' + esc(a.description || '') + '</div>';
+  html += '<div class="ai-meta">';
+  if (a.owner) html += '<span>' + esc(a.owner) + '</span>';
+  if (a.dueDate) html += '<span class="' + (isOverdue ? 'ai-overdue' : '') + '">Due: ' + formatDate(a.dueDate) + '</span>';
+  if (a.status && a.status !== 'Complete') html += '<span>' + esc(a.status) + '</span>';
+  html += '</div>';
+  if (a.notes) html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + esc(a.notes) + '</div>';
+  html += '</div>';
+  html += '<div class="ai-actions">';
+  html += '<button class="note-delete-btn" onclick="openEditActionItem(\'' + a.id + '\')" title="Edit"><span class="material-icons-round">edit</span></button>';
+  html += '<button class="note-delete-btn" onclick="deleteActionItem(\'' + a.id + '\',\'' + (a.taskId || '') + '\')" title="Delete"><span class="material-icons-round">close</span></button>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function filterActionItems(el, mode) {
+  document.querySelectorAll('[data-aif]').forEach(function(b) { b.classList.remove('active'); });
+  el.classList.add('active');
+  // Use the My Tasks panel person selection (name-based) for "Mine" filter on action items
+  // Falls back to email if no name selected yet
+  var myName = APP.myTasksFilter || '';
+  var myEmail = APP.config ? APP.config.currentUser : '';
+  document.querySelectorAll('.ai-item').forEach(function(item) {
+    if (mode === 'mine') {
+      var owner = item.dataset.owner || '';
+      var isMatch = (myName && owner === myName) || (myEmail && owner === myEmail);
+      item.style.display = isMatch ? '' : 'none';
+    } else {
+      item.style.display = '';
+    }
+  });
+}
+
+// ---- Initiative Documents Tab ----
+function loadInitiativeDocuments(initId) {
+  var content = document.getElementById('init-tab-content');
+  if (!content) return;
+  content.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(docs) { renderInitDocumentsTab(initId, docs); })
+    .withFailureHandler(function(err) { content.innerHTML = '<div class="empty-state"><p>Error: ' + err.message + '</p></div>'; })
+    .getInitiativeDocuments(initId);
+}
+
+function renderInitDocumentsTab(initId, docs) {
+  var content = document.getElementById('init-tab-content');
+  if (!content) return;
+  var html = '<div class="section-header"><h4>Documents</h4>';
+  html += '<button class="btn btn-primary btn-sm" onclick="openNewDocument(\'' + initId + '\')"><span class="material-icons-round">add</span> Link Document</button></div>';
+
+  if (!docs.length) {
+    html += '<div style="color:var(--text-muted);font-size:13px;padding:12px;">No documents linked yet.</div>';
+  }
+  docs.forEach(function(d) {
+    html += '<div class="doc-item">';
+    html += '<span class="material-icons-round">description</span>';
+    html += '<div class="doc-item-name"><a href="' + esc(d.url || '#') + '" target="_blank">' + esc(d.documentName || 'Untitled') + '</a></div>';
+    html += '<span class="doc-item-type">' + esc(d.documentType || '') + '</span>';
+    html += '<button class="doc-item-delete" onclick="deleteDocument(\'' + d.id + '\',\'' + initId + '\')" title="Delete"><span class="material-icons-round">close</span></button>';
+    html += '</div>';
+  });
+  content.innerHTML = html;
+}
+
+// ---- Initiative Notes Tab ----
+function loadInitiativeNotes(initId) {
+  var content = document.getElementById('init-tab-content');
+  if (!content) return;
+  content.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(notes) { renderInitNotesTab(initId, notes); })
+    .withFailureHandler(function(err) { content.innerHTML = '<div class="empty-state"><p>Error: ' + err.message + '</p></div>'; })
+    .getInitiativeNotes(initId);
+}
+
+function renderInitNotesTab(initId, notes) {
+  var content = document.getElementById('init-tab-content');
+  if (!content) return;
+  var html = '';
+
+  // Inline add form
+  html += '<div class="note-add-form">';
+  html += '<div class="form-row form-row-2" style="margin-bottom:8px;">';
+  html += '<div class="form-group" style="margin-bottom:0;"><select id="init-note-type">';
+  (APP.config ? APP.config.noteTypes : ['General']).forEach(function(nt) {
+    html += '<option value="' + esc(nt) + '">' + esc(nt) + '</option>';
+  });
+  html += '</select></div>';
+  html += '<div class="form-group" style="margin-bottom:0;text-align:right;"><button id="init-add-note-btn" class="btn btn-primary btn-sm"><span class="material-icons-round">add</span> Add Note</button></div>';
+  html += '</div>';
+  html += '<textarea id="init-note-text" rows="2" placeholder="Add an initiative note..."></textarea>';
+  html += '</div>';
+
+  // Filter toggle
+  html += '<div class="filter-toggle">';
+  html += '<span class="filter-toggle-btn active" data-nf="all" onclick="filterNotes(this,\'all\')">All</span>';
+  html += '<span class="filter-toggle-btn" data-nf="mine" onclick="filterNotes(this,\'mine\')">Mine</span>';
+  html += '</div>';
+
+  notes.sort(function(a,b) { return (b.timestamp || '').localeCompare(a.timestamp || ''); });
+  html += '<div id="notes-list">';
+  if (!notes.length) {
+    html += '<div style="color:var(--text-muted);font-size:13px;padding:12px;">No notes yet.</div>';
+  }
+  notes.forEach(function(n) { html += renderNoteItem(n, 'initiative'); });
+  html += '</div>';
+
+  content.innerHTML = html;
+
+  // Bind click handler after DOM update (more reliable than inline onclick)
+  var addBtn = document.getElementById('init-add-note-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function() {
+      addInitiativeNote(initId);
+    });
+  }
+}
+
+// ============================================================
+// ANALYST VIEW
+// ============================================================
+
+function loadAnalystView() {
+  if (!APP.analystGroupBy) APP.analystGroupBy = 'initiative';
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+  var people = APP.config ? (APP.config.people || []) : [];
+
+  var html = '<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">';
+  html += '<select id="analyst-select" style="width:280px;" onchange="APP.analystFilter=this.value;loadAnalystView();">';
+  html += '<option value="">— Select Person —</option>';
+  people.forEach(function(a) {
+    html += '<option value="' + esc(a) + '"' + (APP.analystFilter === a ? ' selected' : '') + '>' + esc(a) + '</option>';
+  });
+  html += '</select>';
+
+  if (APP.analystFilter) {
+    html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Group by:</span>';
+    var groupOpts = [
+      { key: 'initiative', label: 'Initiative' },
+      { key: 'status', label: 'Status' },
+      { key: 'module', label: 'Module' }
+    ];
+    groupOpts.forEach(function(g) {
+      html += '<button class="filter-toggle-btn' + (APP.analystGroupBy === g.key ? ' active' : '') + '" onclick="APP.analystGroupBy=\'' + g.key + '\';loadAnalystView();">' + g.label + '</button>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  if (!APP.analystFilter) {
+    html += '<div class="empty-state"><span class="material-icons-round">person</span><p>Select an analyst to see their tasks</p></div>';
+    area.innerHTML = html; return;
+  }
+
+  var person = APP.analystFilter;
+  var closedTaskStatuses = ['Closed - Completed', 'Closed - Deferred', 'Dismissed'];
+  var closedInitStatuses = ['Completed', 'Dismissed', 'Deferred'];
+  var myTasks = APP.tasks.filter(function(t) {
+    if (closedTaskStatuses.indexOf(t.status) >= 0) return false;
+    var init = getInitiativeFromCache(t.initiativeId);
+    if (init && closedInitStatuses.indexOf(init.status) >= 0) return false;
+    if (t.primaryAnalyst === person) return true;
+    if (t.additionalAnalysts && String(t.additionalAnalysts).split(',').map(function(a){return a.trim();}).indexOf(person) >= 0) return true;
+    return false;
+  });
+
+  // Split On Hold out — always goes to bottom
+  var activeTasks = myTasks.filter(function(t) { return t.status !== 'On Hold'; });
+  var onHoldTasks = myTasks.filter(function(t) { return t.status === 'On Hold'; });
+
+  if (!myTasks.length) {
+    html += '<div class="empty-state"><p>No open tasks for ' + esc(person) + '</p></div>';
+    area.innerHTML = html; return;
+  }
+
+  html += '<div style="margin-bottom:10px;color:var(--text-muted);font-size:12px;"><strong>' + esc(person) + '</strong> · ' + myTasks.length + ' open task' + (myTasks.length !== 1 ? 's' : '') + '</div>';
+
+  // Render active tasks by selected grouping
+  html += renderGroupedTasks(activeTasks, APP.analystGroupBy);
+
+  // On Hold section — ALWAYS at bottom with separator
+  html += renderOnHoldSection(onHoldTasks);
+
+  area.innerHTML = html;
+}
+
+/** Shared: render a set of tasks grouped by a key */
+function renderGroupedTasks(tasks, groupBy) {
+  if (!tasks.length) return '';
+  var html = '';
+
+  if (groupBy === 'status') {
+    var taskStatusOrder = [
+      'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Identified',
+      'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing'
+    ];
+    var byStatus = {};
+    taskStatusOrder.forEach(function(s) { byStatus[s] = []; });
+    tasks.forEach(function(t) {
+      var st = t.status || 'Identified';
+      if (!byStatus[st]) { byStatus[st] = []; taskStatusOrder.push(st); }
+      byStatus[st].push(t);
+    });
+    taskStatusOrder.forEach(function(st) {
+      if (!byStatus[st] || !byStatus[st].length) return;
+      html += '<div style="margin-bottom:20px;">';
+      html += '<div class="dash-section-title" style="margin-top:4px;">' + taskStatusTag(st) + ' <span style="font-size:12px;color:var(--text-muted);margin-left:4px;">(' + byStatus[st].length + ')</span></div>';
+      byStatus[st].forEach(function(t) { html += renderTaskCard(t); });
+      html += '</div>';
+    });
+
+  } else if (groupBy === 'module') {
+    var byModule = {};
+    var modOrder = [];
+    tasks.forEach(function(t) {
+      var mod = t.module || 'Uncategorized';
+      if (!byModule[mod]) { byModule[mod] = []; modOrder.push(mod); }
+      byModule[mod].push(t);
+    });
+    modOrder.sort(function(a, b) {
+      if (a === 'Uncategorized') return 1;
+      if (b === 'Uncategorized') return -1;
+      return a.localeCompare(b);
+    });
+    modOrder.forEach(function(mod) {
+      html += '<div style="margin-bottom:20px;">';
+      html += '<div class="dash-section-title" style="margin-top:4px;">' + moduleTag(mod) + ' <span style="font-size:12px;color:var(--text-muted);margin-left:4px;">(' + byModule[mod].length + ')</span></div>';
+      byModule[mod].forEach(function(t) { html += renderTaskCard(t); });
+      html += '</div>';
+    });
+
+  } else {
+    // Default: group by initiative
+    var groups = {};
+    var groupOrder = [];
+    tasks.forEach(function(t) {
+      if (!groups[t.initiativeId]) { groups[t.initiativeId] = []; groupOrder.push(t.initiativeId); }
+      groups[t.initiativeId].push(t);
+    });
+    groupOrder.forEach(function(initId) {
+      var init = getInitiativeFromCache(initId);
+      html += '<div style="margin-bottom:20px;">';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:8px;cursor:pointer;color:var(--accent);" onclick="openInitiativeDetail(\'' + esc(initId) + '\')">' +
+        esc(init ? init.name : initId) +
+        (init ? ' ' + initiativeStatusTag(init.status) : '') +
+        '</div>';
+      groups[initId].forEach(function(t) { html += renderTaskCard(t); });
+      html += '</div>';
+    });
+  }
+  return html;
+}
+
+/** Shared: On Hold section that ALWAYS renders at bottom with separator */
+function renderOnHoldSection(onHoldTasks) {
+  var html = '<div style="margin-top:32px;padding-top:16px;border-top:2px solid var(--border);">';
+  html += '<div class="dash-section-title"><span class="material-icons-round" style="color:var(--orange);">pause_circle</span> On Hold (' + onHoldTasks.length + ')</div>';
+  if (!onHoldTasks.length) {
+    html += '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">Nothing on hold</div>';
+  } else {
+    var holdGroups = {};
+    var holdOrder = [];
+    onHoldTasks.forEach(function(t) {
+      if (!holdGroups[t.initiativeId]) { holdGroups[t.initiativeId] = []; holdOrder.push(t.initiativeId); }
+      holdGroups[t.initiativeId].push(t);
+    });
+    holdOrder.forEach(function(initId) {
+      var init = getInitiativeFromCache(initId);
+      html += '<div style="margin-bottom:16px;">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:6px;cursor:pointer;color:var(--text-secondary);" onclick="openInitiativeDetail(\'' + esc(initId) + '\')">' + esc(init ? init.name : initId) + '</div>';
+      holdGroups[initId].forEach(function(t) { html += renderTaskCard(t); });
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  return html;
+}
+
+// ============================================================
+// MODULE VIEW
+// ============================================================
+
+function loadModuleView() {
+  if (!APP.moduleGroupBy) APP.moduleGroupBy = 'status';
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+
+  // Build module list from tasks (dynamic — uses what's actually in the data)
+  var moduleSet = {};
+  var hasUncategorized = false;
+  var openStatuses = ['Identified', 'Needs Analyst - Discussion', 'Needs Analyst - Build', 'Build Analyst Assigned', 'Build In Progress', 'Non Prod Testing', 'On Hold'];
+  APP.tasks.forEach(function(t) {
+    if (openStatuses.indexOf(t.status) < 0) return;
+    if (t.module) moduleSet[t.module] = true;
+    else hasUncategorized = true;
+  });
+  var modules = Object.keys(moduleSet).sort();
+
+  var html = '<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">';
+  html += '<select id="module-select" style="width:280px;" onchange="APP.moduleFilter=this.value;loadModuleView();">';
+  html += '<option value="">— Select Module —</option>';
+  modules.forEach(function(m) {
+    html += '<option value="' + esc(m) + '"' + (APP.moduleFilter === m ? ' selected' : '') + '>' + esc(m) + '</option>';
+  });
+  if (hasUncategorized) {
+    html += '<option value="__uncategorized__"' + (APP.moduleFilter === '__uncategorized__' ? ' selected' : '') + '>Uncategorized</option>';
+  }
+  html += '</select>';
+
+  if (APP.moduleFilter) {
+    html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Group by:</span>';
+    var groupOpts = [
+      { key: 'status', label: 'Status' },
+      { key: 'initiative', label: 'Initiative' },
+      { key: 'analyst', label: 'Analyst' }
+    ];
+    groupOpts.forEach(function(g) {
+      html += '<button class="filter-toggle-btn' + (APP.moduleGroupBy === g.key ? ' active' : '') + '" onclick="APP.moduleGroupBy=\'' + g.key + '\';loadModuleView();">' + g.label + '</button>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  if (!APP.moduleFilter) {
+    html += '<div class="empty-state"><span class="material-icons-round">view_module</span><p>Select a module to see open tasks</p></div>';
+    area.innerHTML = html;
+    return;
+  }
+
+  var mod = APP.moduleFilter;
+  var closedInitStatuses = ['Completed', 'Dismissed', 'Deferred'];
+  var modTasks = APP.tasks.filter(function(t) {
+    if (openStatuses.indexOf(t.status) < 0) return false;
+    var init = getInitiativeFromCache(t.initiativeId);
+    if (init && closedInitStatuses.indexOf(init.status) >= 0) return false;
+    if (mod === '__uncategorized__') return !t.module;
+    return t.module === mod;
+  });
+
+  var modLabel = mod === '__uncategorized__' ? 'Uncategorized' : mod;
+  if (!modTasks.length) {
+    html += '<div class="empty-state"><p>No open tasks for <strong>' + esc(modLabel) + '</strong></p></div>';
+    area.innerHTML = html;
+    return;
+  }
+
+  // Split On Hold out — always goes to bottom
+  var activeTasks = modTasks.filter(function(t) { return t.status !== 'On Hold'; });
+  var onHoldTasks = modTasks.filter(function(t) { return t.status === 'On Hold'; });
+
+  html += '<div style="margin-bottom:10px;color:var(--text-muted);font-size:12px;"><strong>' + esc(modLabel) + '</strong> · ' + modTasks.length + ' open task' + (modTasks.length !== 1 ? 's' : '') + '</div>';
+
+  // Render by selected grouping
+  if (APP.moduleGroupBy === 'analyst') {
+    html += renderGroupedTasksByAnalyst(activeTasks);
+  } else {
+    html += renderGroupedTasks(activeTasks, APP.moduleGroupBy);
+  }
+
+  // On Hold section — ALWAYS at bottom
+  html += renderOnHoldSection(onHoldTasks);
+
+  area.innerHTML = html;
+}
+
+/** Group tasks by analyst (primary) */
+function renderGroupedTasksByAnalyst(tasks) {
+  if (!tasks.length) return '';
+  var html = '';
+  var byAnalyst = {};
+  var analystOrder = [];
+  tasks.forEach(function(t) {
+    var analyst = t.primaryAnalyst || 'Unassigned';
+    if (!byAnalyst[analyst]) { byAnalyst[analyst] = []; analystOrder.push(analyst); }
+    byAnalyst[analyst].push(t);
+  });
+  analystOrder.sort(function(a, b) {
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b);
+  });
+  analystOrder.forEach(function(analyst) {
+    html += '<div style="margin-bottom:20px;">';
+    html += '<div class="dash-section-title" style="margin-top:4px;"><span class="material-icons-round" style="font-size:16px;">person</span> ' + esc(analyst) + ' <span style="font-size:12px;color:var(--text-muted);margin-left:4px;">(' + byAnalyst[analyst].length + ')</span></div>';
+    byAnalyst[analyst].forEach(function(t) { html += renderTaskCard(t); });
+    html += '</div>';
+  });
+  return html;
+}
+
+// ============================================================
+// SCI VIEW
+// ============================================================
+
+function loadSCIView() {
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+  var scis = APP.config ? APP.config.scis : [];
+
+  var html = '<div style="margin-bottom:16px;"><select id="sci-select" style="width:280px;" onchange="APP.sciFilter=this.value;loadSCIView();">';
+  html += '<option value="">— Select SCI —</option>';
+  scis.forEach(function(s) {
+    html += '<option value="' + esc(s) + '"' + (APP.sciFilter === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+  });
+  html += '</select></div>';
+
+  if (!APP.sciFilter) {
+    html += '<div class="empty-state"><span class="material-icons-round">engineering</span><p>Select a SCI to see their initiatives</p></div>';
+    area.innerHTML = html; return;
+  }
+
+  var sci = APP.sciFilter;
+  var myInits = APP.initiatives.filter(function(i) { return i.primarySCI === sci || i.secondarySCI === sci; });
+
+  if (!myInits.length) {
+    html += '<div class="empty-state"><p>No initiatives for ' + esc(sci) + '</p></div>';
+    area.innerHTML = html; return;
+  }
+
+  myInits.forEach(function(init) {
+    var tasks = getTasksForInitiative(init.id);
+    var openCount = countOpenTasks(init.id);
+    html += '<div class="work-card" onclick="openInitiativeDetail(\'' + init.id + '\')">';
+    html += '<div class="work-card-header"><div class="work-card-title">' + esc(init.name) + '</div>' + initiativeStatusTag(init.status) + '</div>';
+    if (init.description) html += '<div class="work-card-desc">' + esc(init.description).substring(0, 120) + '</div>';
+    html += '<div class="work-card-meta"><span class="board-card-id">' + esc(init.id) + '</span>' + priorityTag(init.priority);
+    if (init.type) html += typeTag(init.type);
+    html += '<span class="task-count-badge"><span class="material-icons-round">task_alt</span> ' + openCount + '/' + tasks.length + '</span></div>';
+    html += '</div>';
+  });
+
+  area.innerHTML = html;
+}
+
+// ============================================================
+// PIPELINE VIEW
+// ============================================================
+
+function loadPipelineView() {
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+
+  if (!APP.pipeline || !APP.pipeline.length) {
+    area.innerHTML = '<div class="empty-state"><span class="material-icons-round">route</span><p>No pipeline items</p></div>';
+    return;
+  }
+
+  var html = '<div style="overflow-x:auto;"><table class="pipeline-table" style="table-layout:fixed;">';
+  html += '<colgroup><col style="width:3%;"><col style="width:26%;"><col style="width:10%;"><col style="width:6%;"><col style="width:16%;"><col style="width:16%;"><col style="width:23%;"></colgroup>';
+  html += '<thead><tr>';
+  html += '<th></th><th>System Policy/Standard/Guideline</th><th>Type</th><th>Priority</th><th>SCI</th><th>Analyst</th><th>Application</th>';
+  html += '</tr></thead><tbody>';
+
+  APP.pipeline.forEach(function(p, idx) {
+    var name = p['System Policy/Standard/Guideline'] || '';
+    html += '<tr>';
+    html += '<td><span class="promote-btn material-icons-round" onclick="openPromote(' + idx + ')" title="Promote to Initiative">arrow_upward</span></td>';
+    html += '<td style="font-weight:600;word-break:break-word;">' + esc(name) + '</td>';
+    html += '<td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(p['Type'] || '') + '</td>';
+    html += '<td>' + esc(p['Priority'] || '') + '</td>';
+    html += '<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(p['SCI Point of Contact'] || '') + '</td>';
+    html += '<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(p['Analyst'] || '') + '</td>';
+    html += '<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(p['Application'] || '') + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+// ============================================================
+// DASHBOARD VIEW
+// ============================================================
+
+// ============================================================
+// EXECUTIVE DASHBOARD VIEW
+// ============================================================
+
+function loadExecutiveView() {
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+  var cfg = APP.config || {};
+
+  // Filter data
+  var filtered = execFilterData();
+  var fInits = filtered.initiatives;
+  var fTasks = filtered.tasks;
+  var isFiltered = Object.keys(APP.execFilter).some(function(k) { return APP.execFilter[k]; });
+
+  // Compute stats from filtered data
+  var activeStatuses = ['Not Started','Define','Ready for Discussion','In Progress','Under Review','On Hold','Deferred'];
+  var closedTaskStatuses = ['Closed - Completed','Closed - Deferred','Dismissed'];
+  var activeInits = fInits.filter(function(i) { return activeStatuses.indexOf(i.status) >= 0; });
+  var openTasks = fTasks.filter(function(t) { return closedTaskStatuses.indexOf(t.status) < 0; });
+  var completedTasks = fTasks.filter(function(t) { return t.status === 'Closed - Completed'; });
+  var highPri = openTasks.filter(function(t) { return t.priority === 'Critical' || t.priority === 'High'; });
+  var unassigned = openTasks.filter(function(t) { return !t.primaryAnalyst; });
+  var completionPct = fTasks.length > 0 ? Math.round((completedTasks.length / fTasks.length) * 100) : 0;
+
+  // Overdue action items
+  var todayStr = new Date().toISOString().split('T')[0];
+  var fTaskIds = {};
+  fTasks.forEach(function(t) { fTaskIds[t.id] = true; });
+  var fActions = (APP.actionItems || []).filter(function(a) { return fTaskIds[a.taskId]; });
+  var openAI = fActions.filter(function(a) { return a.status !== 'Complete'; });
+  var overdueAI = openAI.filter(function(a) { return a.dueDate && String(a.dueDate).split('T')[0] < todayStr; });
+
+  // Breakdowns
+  var bd = execComputeBreakdowns(fInits, fTasks);
+
+  var html = '';
+
+  // ─── FILTER BAR ───
+  html += '<div class="exec-filter-bar">';
+  html += '<span class="material-icons-round" style="font-size:16px;color:var(--accent);">filter_alt</span>';
+
+  var filters = [
+    { key: 'wave', label: 'Wave', options: cfg.goLiveWaves || [] },
+    { key: 'priority', label: 'Priority', options: cfg.priorities || [] },
+    { key: 'sci', label: 'SCI', options: cfg.scis || [] },
+    { key: 'type', label: 'Type', options: cfg.initiativeTypes || [] },
+    { key: 'status', label: 'Status', options: cfg.initiativeStatuses || [] },
+    { key: 'venue', label: 'Venue', options: cfg.venues || [] },
+    { key: 'role', label: 'Role', options: cfg.roles || [] },
+    { key: 'specialty', label: 'Specialty', options: cfg.specialties || [] },
+    { key: 'module', label: 'Module', options: cfg.applications || [] },
+    { key: 'analyst', label: 'Analyst', options: (cfg.people || cfg.analysts || []) }
+  ];
+
+  filters.forEach(function(f) {
+    var val = APP.execFilter[f.key] || '';
+    html += '<label>' + esc(f.label) + '</label>';
+    html += '<select id="exec-f-' + f.key + '" class="' + (val ? 'has-val' : '') + '" onchange="execApplyFilters()">';
+    html += '<option value="">All</option>';
+    f.options.forEach(function(o) {
+      html += '<option value="' + esc(o) + '"' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>';
+    });
+    html += '</select>';
+  });
+
+  if (isFiltered) html += '<button class="exec-filter-reset" onclick="execResetFilters()">Reset All</button>';
+  html += '</div>';
+
+  // ─── ACTIVE FILTER PILLS ───
+  if (isFiltered) {
+    html += '<div class="exec-pills-bar">';
+    Object.keys(APP.execFilter).forEach(function(k) {
+      if (!APP.execFilter[k]) return;
+      html += '<span class="exec-filter-pill"><span class="exec-pill-dim">' + esc(k) + ':</span> ' + esc(APP.execFilter[k]);
+      html += ' <span class="exec-pill-x" onclick="execClearFilter(\'' + esc(k) + '\')">&times;</span></span>';
+    });
+    html += '</div>';
+  }
+
+  // ─── KPI STRIP ───
+  html += '<div class="dash-grid dash-grid-6">';
+  html += dashKPI(fInits.length, 'Initiatives', 'accent', activeInits.length + ' active');
+  html += dashKPI(fTasks.length, 'Tasks', 'teal', openTasks.length + ' open');
+  html += dashKPI(completionPct + '%', 'Completion', 'green', completedTasks.length + ' done');
+  html += dashKPI(highPri.length, 'High/Critical', 'red', 'tasks');
+  html += dashKPI(unassigned.length, 'Unassigned', 'yellow', 'need analyst');
+  html += dashKPI(overdueAI.length, 'Overdue Actions', overdueAI.length > 0 ? 'red' : 'green', openAI.length + ' open');
+  html += '</div>';
+
+  // ─── BREAKDOWN CARDS ROW 1 ───
+  html += '<div class="dash-grid dash-grid-3">';
+  html += execBreakdownCard('By Analyst', 'analyst', bd.byAnalyst);
+  html += execBreakdownCard('By Module', 'module', bd.byModule);
+  html += execBreakdownCard('By SCI Lead', 'sci', bd.bySCI);
+  html += '</div>';
+
+  // ─── BREAKDOWN CARDS ROW 2 ───
+  html += '<div class="dash-grid dash-grid-3">';
+  html += execBreakdownCard('By Wave', 'wave', bd.byWave);
+  html += execBreakdownCard('By Venue', 'venue', bd.byVenue);
+  html += execBreakdownCard('By Specialty', 'specialty', bd.bySpecialty);
+  html += '</div>';
+
+  // ─── ITEMS TABLE ───
+  html += execItemsTable(fInits, fTasks);
+
+  area.innerHTML = html;
+}
+
+// ─── EXEC: Filter Data Engine ───
+function execFilterData() {
+  var f = APP.execFilter || {};
+  var inits = APP.initiatives || [];
+  var tasks = APP.tasks || [];
+
+  // Filter initiatives
+  inits = inits.filter(function(i) {
+    if (f.wave && i.goLiveWave !== f.wave) return false;
+    if (f.priority && i.priority !== f.priority) return false;
+    if (f.sci && i.primarySCI !== f.sci) return false;
+    if (f.type && i.type !== f.type) return false;
+    if (f.status && i.status !== f.status) return false;
+    if (f.venue && csvToArray(i.venues).indexOf(f.venue) < 0) return false;
+    if (f.role && csvToArray(i.rolesImpacted).indexOf(f.role) < 0) return false;
+    if (f.specialty && csvToArray(i.specialtyServiceLine).indexOf(f.specialty) < 0) return false;
+    return true;
+  });
+
+  // Build init ID lookup
+  var initIds = {};
+  inits.forEach(function(i) { initIds[i.id] = true; });
+
+  // Filter tasks — must belong to a matching initiative
+  tasks = tasks.filter(function(t) {
+    if (!initIds[t.initiativeId]) return false;
+    if (f.module && t.module !== f.module) return false;
+    if (f.analyst && t.primaryAnalyst !== f.analyst) return false;
+    if (f.priority && t.priority !== f.priority) return false;
+    return true;
+  });
+
+  // If module or analyst filter active, narrow initiatives to only those with matching tasks
+  if (f.module || f.analyst) {
+    var taskInitIds = {};
+    tasks.forEach(function(t) { taskInitIds[t.initiativeId] = true; });
+    inits = inits.filter(function(i) { return taskInitIds[i.id]; });
+  }
+
+  return { initiatives: inits, tasks: tasks };
+}
+
+// ─── EXEC: Compute Breakdowns ───
+function execComputeBreakdowns(inits, tasks) {
+  var closedTaskStatuses = ['Closed - Completed','Closed - Deferred','Dismissed'];
+
+  function buildDist(items, getKey, getTasksForItem) {
+    var dist = {};
+    items.forEach(function(item) {
+      var keys = getKey(item);
+      if (!Array.isArray(keys)) keys = [keys];
+      keys.forEach(function(k) {
+        if (!k) k = 'Unassigned';
+        if (!dist[k]) dist[k] = { count: 0, completed: 0, total: 0 };
+        dist[k].count++;
+        if (getTasksForItem) {
+          var t = getTasksForItem(item);
+          dist[k].total += t.length;
+          dist[k].completed += t.filter(function(x) { return x.status === 'Closed - Completed'; }).length;
+        }
+      });
+    });
+    return dist;
+  }
+
+  // Task-based breakdowns
+  var byAnalyst = buildDist(tasks, function(t) { return t.primaryAnalyst || 'Unassigned'; });
+  var byModule = buildDist(tasks, function(t) { return t.module || 'Unknown'; });
+
+  // Initiative-based breakdowns (with task completion)
+  var tasksByInit = {};
+  tasks.forEach(function(t) {
+    if (!tasksByInit[t.initiativeId]) tasksByInit[t.initiativeId] = [];
+    tasksByInit[t.initiativeId].push(t);
+  });
+  var getInitTasks = function(i) { return tasksByInit[i.id] || []; };
+
+  var bySCI = buildDist(inits, function(i) { return i.primarySCI || 'Unassigned'; }, getInitTasks);
+  var byWave = buildDist(inits, function(i) { return i.goLiveWave || 'Unassigned'; }, getInitTasks);
+  var byVenue = buildDist(inits, function(i) { var v = csvToArray(i.venues); return v.length ? v : ['Unassigned']; }, getInitTasks);
+  var byRole = buildDist(inits, function(i) { var v = csvToArray(i.rolesImpacted); return v.length ? v : ['Unassigned']; }, getInitTasks);
+  var bySpecialty = buildDist(inits, function(i) { var v = csvToArray(i.specialtyServiceLine); return v.length ? v : ['Unassigned']; }, getInitTasks);
+  var byType = buildDist(inits, function(i) { return i.type || 'Unassigned'; }, getInitTasks);
+  var byPriority = buildDist(inits, function(i) { return i.priority || 'Unassigned'; }, getInitTasks);
+
+  return { byAnalyst: byAnalyst, byModule: byModule, bySCI: bySCI, byWave: byWave, byVenue: byVenue, byRole: byRole, bySpecialty: bySpecialty, byType: byType, byPriority: byPriority };
+}
+
+// ─── EXEC: Breakdown Card ───
+function execBreakdownCard(title, dimension, data) {
+  var entries = Object.keys(data).filter(function(k) { return data[k].count > 0; });
+  entries.sort(function(a,b) { return data[b].count - data[a].count; });
+  var activeVal = APP.execFilter[dimension] || '';
+
+  var html = '<div class="dash-card"><div class="dash-card-header"><div class="dash-card-title">' + esc(title) + '</div></div>';
+  html += '<div class="dash-card-body" style="max-height:240px;overflow-y:auto;">';
+
+  if (entries.length) {
+    entries.forEach(function(key) {
+      var d = data[key];
+      var pct = d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0;
+      var isActive = activeVal === key;
+      var colorBar = pct >= 75 ? 'var(--green)' : (pct >= 50 ? 'var(--yellow)' : (pct >= 25 ? 'var(--orange)' : 'var(--red)'));
+      if (d.total === 0) colorBar = 'var(--text-muted)';
+
+      html += '<div class="exec-dim-row' + (isActive ? ' exec-dim-active' : '') + '">';
+      html += '<span class="exec-dim-label" onclick="execDrillDimension(\'' + esc(dimension) + '\',\'' + esc(key.replace(/'/g, "\\'")) + '\')">' + esc(key) + '</span>';
+      html += '<span class="exec-dim-count">' + d.count + '</span>';
+      html += '<div class="exec-dim-bar"><div class="exec-dim-bar-fill" style="width:' + pct + '%;background:' + colorBar + ';"></div></div>';
+      html += '</div>';
+    });
+  } else {
+    html += '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No data</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
+// ─── EXEC: Items Table ───
+function execItemsTable(inits, tasks) {
+  var tab = APP.execItemsTab || 'initiatives';
+  var limit = APP.execShowAll ? 9999 : 50;
+
+  var html = '<div class="dash-card" style="margin-top:4px;">';
+
+  // Tab bar
+  html += '<div class="exec-tab-bar">';
+  html += '<div class="exec-tab' + (tab === 'initiatives' ? ' active' : '') + '" onclick="execSetItemsTab(\'initiatives\')">Initiatives <span class="exec-tab-count">(' + inits.length + ')</span></div>';
+  html += '<div class="exec-tab' + (tab === 'tasks' ? ' active' : '') + '" onclick="execSetItemsTab(\'tasks\')">Tasks <span class="exec-tab-count">(' + tasks.length + ')</span></div>';
+  html += '</div>';
+
+  html += '<div style="max-height:400px;overflow-y:auto;">';
+
+  if (tab === 'initiatives') {
+    html += '<table class="exec-table"><thead><tr>';
+    html += '<th>ID</th><th>Name</th><th>Status</th><th>Priority</th><th>SCI</th><th>Tasks</th><th>Wave</th><th>Updated</th>';
+    html += '</tr></thead><tbody>';
+    var shown = inits.slice(0, limit);
+    shown.forEach(function(i) {
+      var iTasks = getTasksForInitiative(i.id);
+      var iDone = iTasks.filter(function(t) { return t.status === 'Closed - Completed'; }).length;
+      var pct = iTasks.length > 0 ? Math.round((iDone / iTasks.length) * 100) : 0;
+      html += '<tr onclick="openInitiativeDetail(\'' + esc(i.id) + '\')">';
+      html += '<td class="exec-id">' + esc(i.id) + '</td>';
+      html += '<td class="exec-name">' + esc(i.name || '') + '</td>';
+      html += '<td>' + initiativeStatusTag(i.status) + '</td>';
+      html += '<td>' + priorityTag(i.priority) + '</td>';
+      html += '<td style="font-size:11px;">' + esc(i.primarySCI || '—') + '</td>';
+      html += '<td><span class="exec-progress"><span class="exec-progress-bar"><span class="exec-progress-fill" style="width:' + pct + '%;"></span></span> ' + iDone + '/' + iTasks.length + '</span></td>';
+      html += '<td style="font-size:11px;">' + esc(i.goLiveWave || '—') + '</td>';
+      html += '<td style="font-size:10px;color:var(--text-muted);">' + formatDate(i.updatedDate) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    if (inits.length > limit) {
+      html += '<div class="exec-show-all" onclick="APP.execShowAll=true;loadExecutiveView();">Show all ' + inits.length + ' initiatives</div>';
+    }
+  } else {
+    html += '<table class="exec-table"><thead><tr>';
+    html += '<th>ID</th><th>Description</th><th>Status</th><th>Priority</th><th>Module</th><th>Analyst</th><th>Initiative</th><th>Created</th>';
+    html += '</tr></thead><tbody>';
+    var shown = tasks.slice(0, limit);
+    shown.forEach(function(t) {
+      var init = getInitiativeFromCache(t.initiativeId);
+      html += '<tr onclick="openTaskDetail(\'' + esc(t.id) + '\')">';
+      html += '<td class="exec-id">' + esc(t.id) + '</td>';
+      html += '<td class="exec-name">' + esc((t.description || '').substring(0, 80)) + '</td>';
+      html += '<td>' + taskStatusTag(t.status) + '</td>';
+      html += '<td>' + priorityTag(t.priority) + '</td>';
+      html += '<td style="font-size:11px;">' + esc(t.module || '—') + '</td>';
+      html += '<td style="font-size:11px;">' + esc(t.primaryAnalyst || '—') + '</td>';
+      html += '<td class="exec-id" style="cursor:pointer;" onclick="event.stopPropagation();openInitiativeDetail(\'' + esc(t.initiativeId) + '\')">' + esc(t.initiativeId) + (init ? ' ' + esc((init.name||'').substring(0,20)) : '') + '</td>';
+      html += '<td style="font-size:10px;color:var(--text-muted);">' + formatDate(t.createdDate) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    if (tasks.length > limit) {
+      html += '<div class="exec-show-all" onclick="APP.execShowAll=true;loadExecutiveView();">Show all ' + tasks.length + ' tasks</div>';
+    }
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
+// ─── EXEC: Filter Handlers ───
+function execApplyFilters() {
+  var filters = ['wave','priority','sci','type','status','venue','role','specialty','module','analyst'];
+  filters.forEach(function(k) {
+    var el = document.getElementById('exec-f-' + k);
+    APP.execFilter[k] = el ? el.value : '';
+  });
+  APP.execShowAll = false;
+  loadExecutiveView();
+}
+
+function execResetFilters() {
+  APP.execFilter = {};
+  APP.execShowAll = false;
+  loadExecutiveView();
+}
+
+function execDrillDimension(dim, val) {
+  if (APP.execFilter[dim] === val) {
+    APP.execFilter[dim] = '';
+  } else {
+    APP.execFilter[dim] = val;
+  }
+  APP.execShowAll = false;
+  loadExecutiveView();
+}
+
+function execClearFilter(dim) {
+  APP.execFilter[dim] = '';
+  APP.execShowAll = false;
+  loadExecutiveView();
+}
+
+function execSetItemsTab(tab) {
+  APP.execItemsTab = tab;
+  APP.execShowAll = false;
+  loadExecutiveView();
+}
+
+// ============================================================
+// DASHBOARD VIEW (Metrics Overview)
+// ============================================================
+
+function loadDashboardView() {
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+  var c = APP.counts || {};
+  var totalInits = c.allInitiatives || 0;
+  var totalTasks = c.allTasks || 0;
+  var openInits = c.totalInitiatives || 0;
+  var openTasks = c.totalOpenTasks || 0;
+
+  // Apply dashboard filters if set
+  var filteredInits = APP.initiatives || [];
+  var filteredTasks = APP.tasks || [];
+  var df = APP.dashFilter || {};
+  if (df.wave) {
+    filteredInits = filteredInits.filter(function(i) { return i.goLiveWave === df.wave; });
+    var filtInitIds = {};
+    filteredInits.forEach(function(i) { filtInitIds[i.id] = true; });
+    filteredTasks = filteredTasks.filter(function(t) { return filtInitIds[t.initiativeId]; });
+  }
+  if (df.priority) {
+    filteredInits = filteredInits.filter(function(i) { return i.priority === df.priority; });
+  }
+  if (df.sci) {
+    filteredInits = filteredInits.filter(function(i) { return i.primarySCI === df.sci; });
+  }
+
+  var isFiltered = df.wave || df.priority || df.sci;
+
+  var html = '';
+
+  // ─── FILTER BAR ───
+  var cfg = APP.config || {};
+  html += '<div class="dash-filter-bar">';
+  html += '<span class="material-icons-round" style="font-size:16px;color:var(--accent);">filter_alt</span>';
+  html += '<label>Wave</label><select id="dash-f-wave" onchange="dashFilterChange()"><option value="">All</option>';
+  (cfg.goLiveWaves || []).forEach(function(w) {
+    html += '<option value="' + esc(w) + '"' + (df.wave === w ? ' selected' : '') + '>' + esc(w) + '</option>';
+  });
+  html += '</select>';
+  html += '<label>Priority</label><select id="dash-f-priority" onchange="dashFilterChange()"><option value="">All</option>';
+  (cfg.priorities || []).forEach(function(p) {
+    html += '<option value="' + esc(p) + '"' + (df.priority === p ? ' selected' : '') + '>' + esc(p) + '</option>';
+  });
+  html += '</select>';
+  html += '<label>SCI</label><select id="dash-f-sci" onchange="dashFilterChange()"><option value="">All</option>';
+  (cfg.scis || []).forEach(function(s) {
+    html += '<option value="' + esc(s) + '"' + (df.sci === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+  });
+  html += '</select>';
+  if (isFiltered) html += '<button class="dash-filter-reset" onclick="dashFilterReset()">Reset Filters</button>';
+  html += '</div>';
+
+  // ─── KPI ROW ───
+  html += '<div class="dash-grid dash-grid-6">';
+  html += dashKPI(openInits, 'Open Initiatives', 'accent', totalInits + ' total');
+  html += dashKPI(openTasks, 'Open Tasks', 'teal', totalTasks + ' total');
+  html += dashKPI((c.taskCompletionPct||0) + '%', 'Completion Rate', 'green', (c.completedTasks||0) + ' closed');
+  html += dashKPI(c.highPriority||0, 'High/Critical', 'red', 'open tasks');
+  html += dashKPI(c.unassigned||0, 'Unassigned', 'yellow', 'need analyst');
+  html += dashKPI(c.closedLast30||0, '30-Day Velocity', 'green', 'tasks closed');
+  html += '</div>';
+
+  // ─── ROW 2: Donut charts — Status | Priority | Type ───
+  var initStatusColors = {
+    'Not Started': '#f0c24a', 'Define': '#f0944a', 'Ready for Discussion': '#b488f0',
+    'In Progress': '#6c8cff', 'Under Review': '#4ac8c8', 'Completed': '#4cd68a',
+    'On Hold': '#f0944a', 'Deferred': '#5c6178', 'Dismissed': '#5c6178'
+  };
+  var priColors = { 'Critical': '#f06868', 'High': '#f0944a', 'Medium': '#f0c24a', 'Low': '#4cd68a' };
+  var typeColors = { 'Standard Practice': '#4ac8c8', 'Policy': '#6c8cff', 'Guideline': '#b488f0', 'Board Goal': '#f0944a' };
+
+  html += '<div class="dash-grid dash-grid-3">';
+  html += dashDonutCard('Initiative Status', c.initStatusDist || {}, initStatusColors);
+  html += dashDonutCard('Priority Distribution', c.initPriorityDist || {}, priColors);
+
+  // Build type dist
+  var typeDist = {};
+  filteredInits.forEach(function(i) { var t = i.type || 'Unassigned'; typeDist[t] = (typeDist[t] || 0) + 1; });
+  html += dashDonutCard('Initiative Type', typeDist, typeColors);
+  html += '</div>';
+
+  // ─── ROW 3: Wave Readiness (stacked bars) | Health Indicators ───
+  html += '<div class="dash-grid dash-grid-2">';
+
+  // Wave Readiness
+  var byWave = c.byWave || {};
+  var waveKeys = Object.keys(byWave).filter(function(w) { return w !== 'Unassigned' && byWave[w].total > 0; }).sort();
+  if (byWave['Unassigned'] && byWave['Unassigned'].total > 0) waveKeys.push('Unassigned');
+  html += '<div class="dash-card"><div class="dash-card-header"><div class="dash-card-title">Go-Live Wave Readiness</div></div><div class="dash-card-body">';
+  if (waveKeys.length) {
+    waveKeys.forEach(function(wave) {
+      var w = byWave[wave];
+      var pctDone = w.total > 0 ? Math.round((w.completed / w.total) * 100) : 0;
+      var pctOpen = 100 - pctDone;
+      var taskPct = w.tasks > 0 ? Math.round((w.tasksCompleted / w.tasks) * 100) : 0;
+      html += '<div class="dash-wave-row">';
+      html += '<div class="dash-wave-header"><div class="dash-wave-name">' + esc(wave) + '</div>';
+      html += '<div class="dash-wave-stats"><span style="color:var(--green);">' + w.completed + '</span> done / <span>' + w.total + '</span> init · <span style="color:var(--teal);">' + taskPct + '%</span> tasks</div></div>';
+      html += '<div class="dash-stacked-bar">';
+      html += '<div style="width:' + pctDone + '%;background:var(--green);"></div>';
+      html += '<div style="width:' + pctOpen + '%;background:var(--bg-secondary);"></div>';
+      html += '</div>';
+      html += '</div>';
+    });
+  } else {
+    html += '<div style="padding:20px;text-align:center;color:var(--text-muted);">No wave data</div>';
+  }
+  html += '</div></div>';
+
+  // Health Indicators card
+  var agingTotal = (c.aging30||0) + (c.aging60||0) + (c.aging90||0);
+  html += '<div class="dash-card"><div class="dash-card-header"><div class="dash-card-title">Health Indicators</div></div><div class="dash-card-body">';
+  html += '<div class="dash-grid dash-grid-2" style="margin-bottom:0;">';
+  html += dashKPI(agingTotal, 'Aging Tasks', agingTotal > 0 ? 'red' : 'green',
+    agingTotal > 0 ? [(c.aging90 ? c.aging90+' >90d':''), (c.aging60 ? c.aging60+' 60-90d':''), (c.aging30 ? c.aging30+' 30-60d':'')].filter(Boolean).join(', ') : 'All <30 days');
+  html += dashKPI(c.staleInits||0, 'Stale Initiatives', (c.staleInits||0) > 0 ? 'orange' : 'green', 'no update 30+ days');
+  html += dashKPI(c.educationRequired||0, 'Education Required', 'purple', 'open tasks');
+  html += dashKPI(c.overdueActionItems||0, 'Overdue Actions', (c.overdueActionItems||0) > 0 ? 'red' : 'green', (c.openActionItems||0) + ' open');
+  html += '</div>';
+  html += '</div></div>';
+  html += '</div>';
+
+  // ─── ROW 4: Workload — Analyst | Module | SCI ───
+  html += '<div class="dash-grid dash-grid-3">';
+  html += dashBarCard('Analyst Workload', c.byAnalyst || {}, openTasks, 'var(--accent)');
+  html += dashBarCard('Module Breakdown', c.byModule || {}, openTasks, 'var(--teal)');
+  html += dashBarCard('SCI Lead', c.bySCI || {}, openInits, 'var(--purple)');
+  html += '</div>';
+
+  // ─── ROW 5: Clinical — Venue | Role | Specialty ───
+  html += '<div class="dash-grid dash-grid-3">';
+  html += dashBarCard('By Venue', c.byVenue || {}, openInits, 'var(--teal)');
+  html += dashBarCard('By Role', c.byRole || {}, openInits, 'var(--purple)');
+  html += dashBarCard('By Specialty / Service Line', c.bySpecialty || {}, openInits, 'var(--orange)');
+  html += '</div>';
+
+  // ─── ROW 6: Build Review ───
+  html += '<div class="dash-grid dash-grid-4">';
+  html += dashKPI(c.inBuild||0, 'In Build', 'teal', '');
+  html += dashKPI(c.buildReviewDone||0, 'Review Complete', 'green', '');
+  html += dashKPI(c.buildReviewPending||0, 'Review Pending', 'yellow', '');
+  html += dashKPI(c.buildReviewFailed||0, 'Did Not Meet', 'red', '');
+  html += '</div>';
+
+  area.innerHTML = html;
+}
+
+// ─── DASHBOARD FILTER HANDLERS ───
+function dashFilterChange() {
+  APP.dashFilter = APP.dashFilter || {};
+  var wEl = document.getElementById('dash-f-wave');
+  var pEl = document.getElementById('dash-f-priority');
+  var sEl = document.getElementById('dash-f-sci');
+  APP.dashFilter.wave = wEl ? wEl.value : '';
+  APP.dashFilter.priority = pEl ? pEl.value : '';
+  APP.dashFilter.sci = sEl ? sEl.value : '';
+  loadDashboardView();
+}
+function dashFilterReset() {
+  APP.dashFilter = {};
+  loadDashboardView();
+}
+
+// ─── DASHBOARD HELPER: KPI Card ───
+function dashKPI(val, label, color, sub) {
+  var html = '<div class="dash-kpi kpi-' + color + '">';
+  html += '<div class="dash-kpi-val" style="color:var(--' + color + ');">' + val + '</div>';
+  html += '<div class="dash-kpi-label">' + label + '</div>';
+  if (sub) html += '<div class="dash-kpi-sub">' + sub + '</div>';
+  html += '</div>';
+  return html;
+}
+
+// ─── DASHBOARD HELPER: SVG Donut Card ───
+function dashDonutCard(title, dist, colorMap) {
+  var entries = Object.keys(dist).filter(function(k) { return dist[k] > 0; });
+  entries.sort(function(a,b) { return dist[b] - dist[a]; });
+  var total = entries.reduce(function(s,k) { return s + dist[k]; }, 0);
+
+  var html = '<div class="dash-card"><div class="dash-card-header"><div class="dash-card-title">' + esc(title) + '</div>';
+  html += '<span style="font-family:JetBrains Mono,monospace;font-size:12px;font-weight:700;color:var(--text-primary);">' + total + '</span>';
+  html += '</div><div class="dash-card-body"><div class="dash-donut-wrap">';
+
+  // SVG donut
+  var size = 100, cx = 50, cy = 50, r = 38, stroke = 12;
+  var circ = 2 * Math.PI * r;
+  html += '<svg width="' + size + '" height="' + size + '" viewBox="0 0 100 100" style="flex-shrink:0;">';
+  // Background ring
+  html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--bg-secondary)" stroke-width="' + stroke + '"/>';
+  if (total > 0) {
+    var offset = 0;
+    entries.forEach(function(key) {
+      var pct = dist[key] / total;
+      var dash = pct * circ;
+      var gap = circ - dash;
+      var color = colorMap[key] || '#5c6178';
+      html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + stroke + '"';
+      html += ' stroke-dasharray="' + dash.toFixed(1) + ' ' + gap.toFixed(1) + '" stroke-dashoffset="' + (-offset).toFixed(1) + '"';
+      html += ' transform="rotate(-90 ' + cx + ' ' + cy + ')" style="transition:stroke-dasharray 0.4s ease;"/>';
+      offset += dash;
+    });
+  }
+  html += '</svg>';
+
+  // Legend
+  html += '<div class="dash-donut-legend">';
+  entries.forEach(function(key) {
+    var color = colorMap[key] || '#5c6178';
+    var pct = total > 0 ? Math.round((dist[key] / total) * 100) : 0;
+    html += '<div class="dash-donut-legend-item"><span class="dot" style="background:' + color + ';"></span>';
+    html += '<span>' + esc(key) + '</span><span class="legend-val">' + dist[key] + ' <small style="color:var(--text-muted);">(' + pct + '%)</small></span></div>';
+  });
+  if (!entries.length) html += '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+  html += '</div></div></div></div>';
+  return html;
+}
+
+// ─── DASHBOARD HELPER: Horizontal Bar Card ───
+function dashBarCard(title, dist, total, color) {
+  var entries = Object.keys(dist).filter(function(k) { return dist[k] > 0; });
+  entries.sort(function(a,b) { return dist[b] - dist[a]; });
+  var max = entries.length ? Math.max.apply(null, entries.map(function(k) { return dist[k]; })) : 1;
+
+  var html = '<div class="dash-card"><div class="dash-card-header"><div class="dash-card-title">' + esc(title) + '</div></div>';
+  html += '<div class="dash-card-body" style="max-height:280px;overflow-y:auto;">';
+
+  if (entries.length) {
+    entries.forEach(function(key) {
+      var cnt = dist[key];
+      var pct = total > 0 ? Math.round((cnt / total) * 100) : 0;
+      var barW = Math.round((cnt / max) * 100);
+      html += '<div class="dash-hbar">';
+      html += '<div class="dash-hbar-header"><span class="dash-hbar-name">' + esc(key) + '</span>';
+      html += '<span><span class="dash-hbar-val">' + cnt + '</span><span class="dash-hbar-pct">' + pct + '%</span></span></div>';
+      html += '<div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:' + barW + '%;background:' + color + ';"></div></div>';
+      html += '</div>';
+    });
+  } else {
+    html += '<div style="padding:20px;text-align:center;color:var(--text-muted);">No data</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
+// ============================================================
+// ARCHIVED VIEW
+// ============================================================
+
+function loadArchivedView() {
+  var area = document.getElementById('content-area');
+  document.getElementById('metrics-ribbon').innerHTML = '';
+
+  var closedStatuses = ['Completed', 'Dismissed', 'Deferred'];
+  var archived = (APP.initiatives || []).filter(function(i) {
+    return closedStatuses.indexOf(i.status) >= 0;
+  });
+
+  // Initialize expand state for archived if needed
+  if (!APP.archivedExpanded) APP.archivedExpanded = {};
+
+  var html = '';
+
+  // Archived initiatives with accordion
+  if (archived.length) {
+    html += '<h3 style="margin-bottom:12px;">Archived Initiatives (' + archived.length + ')</h3>';
+
+    archived.forEach(function(init) {
+      var isExpanded = APP.archivedExpanded[init.id];
+      var tasks = getTasksForInitiative(init.id);
+      var completedTasks = tasks.filter(function(t) {
+        return t.status === 'Closed - Completed' || t.status === 'Closed - Deferred' || t.status === 'Dismissed';
+      });
+
+      html += '<div class="card" style="margin-bottom:8px;">';
+
+      // Initiative header row — clickable to expand
+      html += '<div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleArchivedInit(\'' + esc(init.id) + '\')">';
+      html += '<span class="material-icons-round accordion-arrow' + (isExpanded ? ' rotated' : '') + '">chevron_right</span>';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+      html += '<span class="board-card-id">' + esc(init.id) + '</span>';
+      html += '<span style="font-size:14px;font-weight:600;">' + esc(init.name || '') + '</span>';
+      html += initiativeStatusTag(init.status);
+      html += priorityTag(init.priority);
+      if (init.type) html += typeTag(init.type);
+      html += '<span class="task-count-badge"><span class="material-icons-round">task_alt</span> ' + completedTasks.length + '/' + tasks.length + ' tasks</span>';
+      html += '</div>';
+      if (init.primarySCI) html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">SCI: ' + esc(init.primarySCI) + '</div>';
+      html += '</div>';
+      html += '</div>';
+
+      // Expanded: show completed tasks
+      if (isExpanded && tasks.length) {
+        html += '<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">';
+        tasks.forEach(function(t) {
+          html += '<div class="task-card" onclick="openTaskDetail(\'' + esc(t.id) + '\')">';
+          html += '<div class="task-card-header">';
+          html += '<div class="task-card-desc">' + esc(t.description || '') + '</div>';
+          html += '<div class="task-card-id">' + esc(t.id) + '</div>';
+          html += '</div>';
+          html += '<div class="task-card-meta">';
+          html += taskStatusTag(t.status);
+          html += priorityTag(t.priority);
+          if (t.module) html += moduleTag(t.module);
+          html += '</div>';
+          if (t.primaryAnalyst) html += '<div class="task-card-analyst">' + esc(t.primaryAnalyst) + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      } else if (isExpanded) {
+        html += '<div style="margin-top:8px;color:var(--text-muted);font-size:12px;padding:8px 0 0 28px;">No tasks</div>';
+      }
+
+      html += '</div>';
+    });
+  }
+
+  // Archived Components from legacy sheet
+  var legacyArchived = APP.archived || [];
+  if (legacyArchived.length) {
+    if (html) html += '<div style="margin-top:24px;"></div>';
+    html += '<h3 style="margin-bottom:12px;">Archived Components (Legacy)</h3>';
+    html += '<table class="data-table"><thead><tr>';
+    var legacyHeaders = Object.keys(legacyArchived[0]);
+    legacyHeaders.forEach(function(h) { html += '<th>' + esc(h) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    legacyArchived.forEach(function(item) {
+      html += '<tr>';
+      legacyHeaders.forEach(function(h) { html += '<td>' + esc(String(item[h] || '')) + '</td>'; });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  if (!html) {
+    area.innerHTML = '<div class="empty-state"><span class="material-icons-round">inventory_2</span><p>No archived items</p></div>';
+    return;
+  }
+
+  area.innerHTML = html;
+}
+
+function toggleArchivedInit(initId) {
+  if (!APP.archivedExpanded) APP.archivedExpanded = {};
+  APP.archivedExpanded[initId] = !APP.archivedExpanded[initId];
+  loadArchivedView();
+}

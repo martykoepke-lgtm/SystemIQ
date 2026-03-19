@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <div class="app-layout">
+    <?!= include('Sidebar') ?>
+    <main class="main-content">
+      <div class="topbar">
+        <h2 class="view-title" id="view-title">Command View</h2>
+        <div class="topbar-actions">
+          <div class="view-toggle" id="view-toggle" style="display:none;">
+            <button class="toggle-btn active" data-view="board" onclick="setHomeView('board')">
+              <span class="material-icons-round">view_kanban</span>
+            </button>
+            <button class="toggle-btn" data-view="list" onclick="setHomeView('list')">
+              <span class="material-icons-round">view_list</span>
+            </button>
+          </div>
+          <div class="metrics-ribbon" id="metrics-ribbon"></div>
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+            <span class="material-icons-round" id="theme-icon">dark_mode</span>
+          </button>
+        </div>
+      </div>
+      <div class="content-area" id="content-area">
+        <div class="loading-wrap"><div class="spinner"></div></div>
+      </div>
+    </main>
+  </div>
+
+  <?!= include('Modals') ?>
+
+  <script>
+    <?!= includeRaw('ScriptCore') ?>
+    <?!= includeRaw('ScriptViews') ?>
+    <?!= includeRaw('ScriptHandlers') ?>
+  </script>
+</body>
+</html>

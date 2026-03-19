@@ -1,0 +1,669 @@
+// ============================================================
+// PRCC v2 — ScriptHandlers: Modal & Event Handlers
+// ============================================================
+
+// ============================================================
+// INITIATIVE HANDLERS
+// ============================================================
+
+function openNewInitiative() {
+  document.getElementById('modal-initiative-title').textContent = 'New Initiative';
+  document.getElementById('init-edit-id').value = '';
+  document.getElementById('init-name').value = '';
+  document.getElementById('init-description').value = '';
+  document.getElementById('init-sponsor').value = '';
+
+  var cfg = APP.config || {};
+  fillSelect('init-type', [''].concat(cfg.initiativeTypes || []), '');
+  fillSelect('init-priority', cfg.priorities || [], 'Medium');
+  fillSelect('init-status', cfg.initiativeStatuses || [], 'Not Started');
+  fillSelect('init-primary-sci', [''].concat(cfg.scis || []), '');
+  fillSelect('init-secondary-sci', [''].concat(cfg.scis || []), '');
+  fillSelect('init-golive-wave', [''].concat(cfg.goLiveWaves || []), '');
+
+  msInit('init-applications-ms', cfg.applications || [], '', 'init-applications-val');
+  msInit('init-venues-ms', cfg.venues || [], '', 'init-venues-val');
+  msInit('init-roles-ms', cfg.roles || [], '', 'init-roles-val');
+  msInit('init-specialty-ms', cfg.specialties || [], '', 'init-specialty-val');
+
+  openModal('modal-initiative');
+}
+
+function openEditInitiative(id) {
+  var init = getInitiativeFromCache(id);
+  if (!init) return;
+
+  document.getElementById('modal-initiative-title').textContent = 'Edit Initiative \u2014 ' + id;
+  document.getElementById('init-edit-id').value = id;
+  document.getElementById('init-name').value = init.name || '';
+  document.getElementById('init-description').value = init.description || '';
+  document.getElementById('init-sponsor').value = init.systemSponsor || '';
+
+  var cfg = APP.config || {};
+  fillSelect('init-type', [''].concat(cfg.initiativeTypes || []), init.type);
+  fillSelect('init-priority', cfg.priorities || [], init.priority);
+  fillSelect('init-status', cfg.initiativeStatuses || [], init.status);
+  fillSelect('init-primary-sci', [''].concat(cfg.scis || []), init.primarySCI);
+  fillSelect('init-secondary-sci', [''].concat(cfg.scis || []), init.secondarySCI);
+  fillSelect('init-golive-wave', [''].concat(cfg.goLiveWaves || []), init.goLiveWave);
+
+  msInit('init-applications-ms', cfg.applications || [], init.applications || '', 'init-applications-val');
+  msInit('init-venues-ms', cfg.venues || [], init.venues || '', 'init-venues-val');
+  msInit('init-roles-ms', cfg.roles || [], init.rolesImpacted || '', 'init-roles-val');
+  msInit('init-specialty-ms', cfg.specialties || [], init.specialtyServiceLine || '', 'init-specialty-val');
+
+  openModal('modal-initiative');
+}
+
+function saveInitiative() {
+  var id = document.getElementById('init-edit-id').value;
+  var data = {
+    name: document.getElementById('init-name').value,
+    description: document.getElementById('init-description').value,
+    type: document.getElementById('init-type').value,
+    priority: document.getElementById('init-priority').value,
+    status: document.getElementById('init-status').value,
+    primarySCI: document.getElementById('init-primary-sci').value,
+    secondarySCI: document.getElementById('init-secondary-sci').value,
+    applications: msGetValue('init-applications-val'),
+    venues: msGetValue('init-venues-val'),
+    rolesImpacted: msGetValue('init-roles-val'),
+    specialtyServiceLine: msGetValue('init-specialty-val'),
+    systemSponsor: document.getElementById('init-sponsor').value,
+    goLiveWave: document.getElementById('init-golive-wave').value
+  };
+
+  closeModal('modal-initiative');
+
+  if (id) {
+    google.script.run
+      .withSuccessHandler(function() {
+        reloadData(function() { openInitiativeDetail(id); });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .updateInitiative(id, data);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        showToast('Initiative created!', 'success');
+        reloadData(function() { openInitiativeDetail(res.id); });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .createInitiative(data);
+  }
+}
+
+function confirmDeleteInitiative(id) {
+  var init = getInitiativeFromCache(id);
+  var taskCount = countTotalTasks(id);
+  var msg = 'Delete initiative "' + (init ? init.name : id) + '"?';
+  if (taskCount > 0) {
+    msg += ' This will also delete ' + taskCount + ' task(s) and all their notes, action items, and documents.';
+  }
+  msg += ' This cannot be undone.';
+
+  document.getElementById('delete-confirm-msg').textContent = msg;
+  var btn = document.getElementById('delete-confirm-btn');
+  btn.onclick = function() {
+    closeModal('modal-confirm-delete');
+    google.script.run
+      .withSuccessHandler(function() {
+        showToast('Initiative deleted', 'success');
+        reloadData(function() { navigate('command'); });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .deleteInitiative(id);
+  };
+  openModal('modal-confirm-delete');
+}
+
+// ============================================================
+// TASK HANDLERS
+// ============================================================
+
+function openNewTask(initId) {
+  document.getElementById('modal-task-title').textContent = 'New Task';
+  document.getElementById('task-edit-id').value = '';
+  document.getElementById('task-initiative-id').value = initId;
+  document.getElementById('task-description').value = '';
+  document.getElementById('task-build-date').value = '';
+  document.getElementById('task-resolution-date').value = '';
+
+  var cfg = APP.config || {};
+  fillSelect('task-module', [''].concat(cfg.applications || []), '');
+  fillSelect('task-priority', cfg.priorities || [], 'Medium');
+  fillSelect('task-status', cfg.taskStatuses || [], 'Identified');
+  fillSelect('task-primary-analyst', [''].concat(cfg.people || []), '');
+  fillSelect('task-education', cfg.educationOptions || [], '');
+  fillSelect('task-build-review', cfg.buildReviewOptions || [], '');
+
+  msInit('task-addl-analysts-ms', cfg.people || [], '', 'task-addl-analysts-val');
+
+  openModal('modal-task');
+}
+
+function openEditTask(taskId) {
+  var task = getTaskFromCache(taskId);
+  if (!task) return;
+
+  document.getElementById('modal-task-title').textContent = 'Edit Task \u2014 ' + taskId;
+  document.getElementById('task-edit-id').value = taskId;
+  document.getElementById('task-initiative-id').value = task.initiativeId;
+  document.getElementById('task-description').value = task.description || '';
+
+  var buildDate = task.buildReviewDate || '';
+  if (buildDate && String(buildDate).includes('T')) buildDate = String(buildDate).split('T')[0];
+  document.getElementById('task-build-date').value = buildDate;
+
+  var resDate = task.resolutionDate || '';
+  if (resDate && String(resDate).includes('T')) resDate = String(resDate).split('T')[0];
+  document.getElementById('task-resolution-date').value = resDate;
+
+  var cfg = APP.config || {};
+  fillSelect('task-module', [''].concat(cfg.applications || []), task.module);
+  fillSelect('task-priority', cfg.priorities || [], task.priority);
+  fillSelect('task-status', cfg.taskStatuses || [], task.status);
+  fillSelect('task-primary-analyst', [''].concat(cfg.people || []), task.primaryAnalyst);
+  fillSelect('task-education', cfg.educationOptions || [], task.educationRequired);
+  fillSelect('task-build-review', cfg.buildReviewOptions || [], task.buildReviewComplete);
+
+  msInit('task-addl-analysts-ms', cfg.people || [], task.additionalAnalysts || '', 'task-addl-analysts-val');
+
+  openModal('modal-task');
+}
+
+function saveTask() {
+  var id = document.getElementById('task-edit-id').value;
+  var data = {
+    initiativeId: document.getElementById('task-initiative-id').value,
+    description: document.getElementById('task-description').value,
+    module: document.getElementById('task-module').value,
+    priority: document.getElementById('task-priority').value,
+    status: document.getElementById('task-status').value,
+    primaryAnalyst: document.getElementById('task-primary-analyst').value,
+    additionalAnalysts: msGetValue('task-addl-analysts-val'),
+    educationRequired: document.getElementById('task-education').value,
+    buildReviewComplete: document.getElementById('task-build-review').value,
+    buildReviewDate: document.getElementById('task-build-date').value,
+    resolutionDate: document.getElementById('task-resolution-date').value
+  };
+
+  closeModal('modal-task');
+
+  if (id) {
+    google.script.run
+      .withSuccessHandler(function() {
+        reloadData(function() { openTaskDetail(id); });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .updateTask(id, data);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        showToast('Task created!', 'success');
+        reloadData(function() { openTaskDetail(res.id); });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .createTask(data);
+  }
+}
+
+function confirmDeleteTask(taskId) {
+  var task = getTaskFromCache(taskId);
+  var initId = task ? task.initiativeId : '';
+  document.getElementById('delete-confirm-msg').textContent =
+    'Delete task "' + (task ? (task.description || taskId) : taskId) + '"? All notes, action items, and documents for this task will also be deleted. This cannot be undone.';
+
+  var btn = document.getElementById('delete-confirm-btn');
+  btn.onclick = function() {
+    closeModal('modal-confirm-delete');
+    google.script.run
+      .withSuccessHandler(function() {
+        showToast('Task deleted', 'success');
+        reloadData(function() {
+          if (initId) openInitiativeDetail(initId);
+          else navigate('command');
+        });
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .deleteTask(taskId);
+  };
+  openModal('modal-confirm-delete');
+}
+
+// ============================================================
+// NOTE HANDLERS (inline add — no modal)
+// ============================================================
+
+function addNote(taskId) {
+  var noteText = document.getElementById('note-text').value.trim();
+  if (!noteText) { showToast('Enter note text', 'error'); return; }
+  var noteType = document.getElementById('note-type').value;
+
+  document.getElementById('note-text').value = '';
+
+  google.script.run
+    .withSuccessHandler(function() { loadTaskNotes(taskId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .createTaskNote({ taskId: taskId, noteText: noteText, noteType: noteType });
+}
+
+function deleteNote(noteId, taskId) {
+  if (!confirm('Delete this note?')) return;
+  google.script.run
+    .withSuccessHandler(function() { loadTaskNotes(taskId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .deleteTaskNote(noteId);
+}
+
+// ============================================================
+// INITIATIVE NOTE HANDLERS
+// ============================================================
+
+function addInitiativeNote(initId) {
+  var noteText = document.getElementById('init-note-text').value.trim();
+  if (!noteText) { showToast('Enter note text', 'error'); return; }
+  var noteType = document.getElementById('init-note-type').value;
+
+  document.getElementById('init-note-text').value = '';
+
+  google.script.run
+    .withSuccessHandler(function() { loadInitiativeNotes(initId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .createInitiativeNote({ initiativeId: initId, noteText: noteText, noteType: noteType });
+}
+
+function deleteInitiativeNote(noteId, initId) {
+  if (!confirm('Delete this note?')) return;
+  google.script.run
+    .withSuccessHandler(function() { loadInitiativeNotes(initId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .deleteTaskNote(noteId);
+}
+
+// ============================================================
+// ACTION ITEM HANDLERS
+// ============================================================
+
+function openEditActionItem(aiId) {
+  var items = APP.cachedActionItems || [];
+  var item = null;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].id === aiId) { item = items[i]; break; }
+  }
+  if (!item) { showToast('Action item not found', 'error'); return; }
+
+  document.getElementById('modal-ai-title').textContent = 'Edit Action Item';
+  document.getElementById('ai-edit-id').value = item.id;
+  document.getElementById('ai-task-id').value = item.taskId || '';
+  document.getElementById('ai-description').value = item.description || '';
+  document.getElementById('ai-due-date').value = item.dueDate ? String(item.dueDate).split('T')[0] : '';
+  document.getElementById('ai-notes').value = item.notes || '';
+
+  var cfg = APP.config || {};
+  fillSelect('ai-owner', [''].concat(cfg.people || []), item.owner || '');
+  fillSelect('ai-status', cfg.actionItemStatuses || [], item.status || 'Not Started');
+
+  openModal('modal-action-item');
+}
+
+function openNewActionItem(taskId) {
+  document.getElementById('modal-ai-title').textContent = 'Add Action Item';
+  document.getElementById('ai-edit-id').value = '';
+  document.getElementById('ai-task-id').value = taskId;
+  document.getElementById('ai-description').value = '';
+  document.getElementById('ai-due-date').value = '';
+  document.getElementById('ai-notes').value = '';
+
+  var cfg = APP.config || {};
+  fillSelect('ai-owner', [''].concat(cfg.people || []), '');
+  fillSelect('ai-status', cfg.actionItemStatuses || [], 'Not Started');
+
+  openModal('modal-action-item');
+}
+
+function saveActionItem() {
+  var id = document.getElementById('ai-edit-id').value;
+  var taskId = document.getElementById('ai-task-id').value;
+  var data = {
+    taskId: taskId,
+    description: document.getElementById('ai-description').value,
+    owner: document.getElementById('ai-owner').value,
+    dueDate: document.getElementById('ai-due-date').value,
+    status: document.getElementById('ai-status').value,
+    notes: document.getElementById('ai-notes').value
+  };
+
+  closeModal('modal-action-item');
+
+  if (id) {
+    google.script.run
+      .withSuccessHandler(function() { loadTaskActionItems(taskId); })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .updateTaskActionItem(id, data);
+  } else {
+    google.script.run
+      .withSuccessHandler(function() {
+        showToast('Action item added', 'success');
+        loadTaskActionItems(taskId);
+      })
+      .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+      .createTaskActionItem(data);
+  }
+}
+
+function toggleActionComplete(id, complete, taskId) {
+  var newStatus = complete ? 'Complete' : 'Not Started';
+  google.script.run
+    .withSuccessHandler(function() { loadTaskActionItems(taskId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .updateTaskActionItem(id, { status: newStatus });
+}
+
+function deleteActionItem(id, taskId) {
+  if (!confirm('Delete this action item?')) return;
+  google.script.run
+    .withSuccessHandler(function() { loadTaskActionItems(taskId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .deleteTaskActionItem(id);
+}
+
+// ============================================================
+// DOCUMENT HANDLERS (Initiative-level documents)
+// ============================================================
+
+function openNewDocument(initId) {
+  document.getElementById('doc-init-id').value = initId;
+  document.getElementById('doc-name').value = '';
+  document.getElementById('doc-url').value = '';
+
+  var cfg = APP.config || {};
+  fillSelect('doc-type', cfg.documentTypes || [], 'Other');
+
+  openModal('modal-document');
+}
+
+function saveDocument() {
+  var initId = document.getElementById('doc-init-id').value;
+  var data = {
+    initiativeId: initId,
+    documentName: document.getElementById('doc-name').value,
+    documentType: document.getElementById('doc-type').value,
+    url: document.getElementById('doc-url').value
+  };
+
+  closeModal('modal-document');
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('Document linked', 'success');
+      loadInitiativeDocuments(initId);
+    })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .createInitiativeDocument(data);
+}
+
+function deleteDocument(docId, initId) {
+  if (!confirm('Remove this document link?')) return;
+  google.script.run
+    .withSuccessHandler(function() { loadInitiativeDocuments(initId); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .deleteInitiativeDocument(docId);
+}
+
+// ============================================================
+// PROMOTE FROM PIPELINE
+// ============================================================
+
+function openPromote(idx) {
+  var item = APP.pipeline[idx];
+  if (!item) return;
+  document.getElementById('promote-row').value = idx;
+
+  // Pre-fill from pipeline fields
+  var name = item['System Policy/Standard/Guideline'] || item['IT Indicated in Gold'] || '';
+  document.getElementById('promote-name').value = name;
+  document.getElementById('promote-description').value = '';
+  document.getElementById('promote-sponsor').value = '';
+
+  var cfg = APP.config || {};
+  fillSelect('promote-type', [''].concat(cfg.initiativeTypes || []), item['Type'] || '');
+  fillSelect('promote-priority', cfg.priorities || [], item['Priority'] || 'Medium');
+  fillSelect('promote-sci', [''].concat(cfg.scis || []), item['SCI Point of Contact'] || '');
+  fillSelect('promote-sci2', [''].concat(cfg.scis || []), '');
+  fillSelect('promote-golive-wave', [''].concat(cfg.goLiveWaves || []), '');
+
+  // Applications multi-select
+  var appVal = item['Application'] || '';
+  msInit('promote-apps-ms', cfg.applications || [], appVal, 'promote-apps-val');
+  msInit('promote-venues-ms', cfg.venues || [], '', 'promote-venues-val');
+  msInit('promote-roles-ms', cfg.roles || [], '', 'promote-roles-val');
+  msInit('promote-specialty-ms', cfg.specialties || [], '', 'promote-specialty-val');
+
+  // Store pipeline sheet row for write-back on save
+  APP._promotePipelineRow = item._row || null;
+
+  // Collect document links from CSH PSG columns L, M, N
+  APP._promoteDocLinks = [];
+  var policyUrl = item['Link to Policy/ Guideline'] || '';
+  var intakeUrl = item['Intake Slide'] || '';
+  var ehrUrl = item['Link to Document/ EHR Requirements'] || '';
+  if (policyUrl) APP._promoteDocLinks.push({ name: 'Policy / Guideline', type: 'Policy', url: String(policyUrl) });
+  if (intakeUrl) APP._promoteDocLinks.push({ name: 'Intake Slide', type: 'Other', url: String(intakeUrl) });
+  if (ehrUrl) APP._promoteDocLinks.push({ name: 'EHR Requirements', type: 'Requirements', url: String(ehrUrl) });
+
+  openModal('modal-promote');
+}
+
+function savePromote() {
+  var data = {
+    name: document.getElementById('promote-name').value,
+    description: document.getElementById('promote-description').value,
+    type: document.getElementById('promote-type').value,
+    priority: document.getElementById('promote-priority').value,
+    primarySCI: document.getElementById('promote-sci').value,
+    secondarySCI: document.getElementById('promote-sci2').value,
+    applications: msGetValue('promote-apps-val'),
+    venues: msGetValue('promote-venues-val'),
+    rolesImpacted: msGetValue('promote-roles-val'),
+    specialtyServiceLine: msGetValue('promote-specialty-val'),
+    systemSponsor: document.getElementById('promote-sponsor').value,
+    goLiveWave: document.getElementById('promote-golive-wave').value,
+    documentLinks: APP._promoteDocLinks || [],
+    pipelineRow: APP._promotePipelineRow || null
+  };
+
+  if (!data.name) { showToast('Initiative name is required', 'error'); return; }
+
+  closeModal('modal-promote');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      showToast('Initiative created from pipeline!', 'success');
+      reloadData(function() { openInitiativeDetail(res.id); });
+    })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); })
+    .promoteToInitiative(data);
+}
+
+// ============================================================
+// DRAG & DROP (INITIATIVE BOARD)
+// ============================================================
+
+function boardDragStart(e) {
+  e.dataTransfer.setData('text/plain', e.target.dataset.id);
+  e.target.classList.add('dragging');
+}
+
+function boardDragOver(e) {
+  e.preventDefault();
+  var lane = e.target.closest('.board-lane');
+  if (lane) lane.classList.add('drag-over');
+}
+
+function boardDragLeave(e) {
+  var lane = e.target.closest('.board-lane');
+  if (lane) lane.classList.remove('drag-over');
+}
+
+function boardDrop(e) {
+  e.preventDefault();
+  var lane = e.target.closest('.board-lane');
+  if (lane) lane.classList.remove('drag-over');
+
+  var id = e.dataTransfer.getData('text/plain');
+  var newStatus = lane ? lane.dataset.status : '';
+  if (!id || !newStatus) return;
+
+  var init = getInitiativeFromCache(id);
+  if (!init || init.status === newStatus) return;
+
+  // Optimistic update
+  init.status = newStatus;
+  loadCommandView();
+
+  google.script.run
+    .withSuccessHandler(function() { reloadData(function() { loadCommandView(); }); })
+    .withFailureHandler(function(err) { showToast('Error: ' + err.message, 'error'); reloadData(function() { loadCommandView(); }); })
+    .updateInitiative(id, { status: newStatus });
+}
+
+// ---- Accordion List View Handlers ----
+function toggleListInitiative(initId) {
+  if (APP.listExpanded[initId]) {
+    // Collapsing — also collapse child tasks
+    APP.listExpanded[initId] = false;
+    var tasks = getTasksForInitiative(initId);
+    tasks.forEach(function(t) { APP.listTaskExpanded[t.id] = false; });
+  } else {
+    APP.listExpanded[initId] = true;
+  }
+  loadCommandView();
+}
+
+function toggleListTask(taskId, initId) {
+  APP.listTaskExpanded[taskId] = !APP.listTaskExpanded[taskId];
+  loadCommandView();
+}
+
+function loadAccordionNotes(taskId) {
+  var container = document.getElementById('accordion-notes-' + taskId);
+  if (!container) return;
+
+  google.script.run
+    .withSuccessHandler(function(notes) {
+      renderAccordionNotes(taskId, notes);
+    })
+    .withFailureHandler(function(err) {
+      container.innerHTML = '<div style="color:var(--red);font-size:12px;padding:8px;">Error loading notes: ' + err.message + '</div>';
+    })
+    .getTaskNotes(taskId);
+}
+
+function renderAccordionNotes(taskId, notes) {
+  var container = document.getElementById('accordion-notes-' + taskId);
+  if (!container) return;
+
+  // Sort newest first
+  notes.sort(function(a, b) { return (b.timestamp || '').localeCompare(a.timestamp || ''); });
+
+  var noteTypes = (APP.config && APP.config.noteTypes) || ['General', 'Decision', 'Blocker', 'Status Update', 'Meeting Notes'];
+
+  var html = '';
+
+  // Inline add form
+  html += '<div class="accordion-note-form">';
+  html += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
+  html += '<select id="accordion-note-type-' + esc(taskId) + '" style="width:130px;font-size:11px;padding:4px 8px;">';
+  noteTypes.forEach(function(nt) {
+    html += '<option value="' + esc(nt) + '">' + esc(nt) + '</option>';
+  });
+  html += '</select>';
+  html += '<button class="btn btn-primary btn-sm" onclick="addAccordionNote(\'' + esc(taskId) + '\')"><span class="material-icons-round">add</span> Add</button>';
+  html += '</div>';
+  html += '<textarea id="accordion-note-text-' + esc(taskId) + '" rows="2" placeholder="Add a note..." style="font-size:12px;width:100%;"></textarea>';
+  html += '</div>';
+
+  if (!notes.length) {
+    html += '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No notes yet</div>';
+  } else {
+    // Show the latest note
+    var latest = notes[0];
+    html += '<div class="accordion-last-note">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    html += '<span>' + noteTypeTag(latest.noteType) + '</span>';
+    html += '<span style="font-size:10px;color:var(--text-muted);">' + esc(latest.author || '') + ' · ' + timeAgo(latest.timestamp) + '</span>';
+    html += '</div>';
+    html += '<div style="font-size:12px;line-height:1.5;white-space:pre-wrap;">' + esc(latest.noteText || '') + '</div>';
+    html += '</div>';
+
+    // "N more notes" link
+    if (notes.length > 1) {
+      html += '<div style="font-size:11px;color:var(--accent);cursor:pointer;padding:4px 0;" onclick="openTaskDetail(\'' + esc(taskId) + '\')">';
+      html += (notes.length - 1) + ' more note' + (notes.length - 1 !== 1 ? 's' : '') + ' — view all →';
+      html += '</div>';
+    }
+  }
+
+  container.innerHTML = html;
+}
+
+function addAccordionNote(taskId) {
+  var noteText = document.getElementById('accordion-note-text-' + taskId);
+  var noteType = document.getElementById('accordion-note-type-' + taskId);
+  if (!noteText || !noteText.value.trim()) {
+    showToast('Note text is required', 'error');
+    return;
+  }
+
+  var data = {
+    taskId: taskId,
+    noteText: noteText.value.trim(),
+    noteType: noteType ? noteType.value : 'General'
+  };
+
+  noteText.value = '';
+
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('Note added', 'success');
+      loadAccordionNotes(taskId);
+    })
+    .withFailureHandler(function(err) {
+      showToast('Error: ' + err.message, 'error');
+    })
+    .createTaskNote(data);
+}
+
+// ---- Quick Action Item Status Update (My Tasks Panel) ----
+function quickUpdateActionStatus(aiId, newStatus) {
+  // Optimistic local cache update
+  for (var i = 0; i < APP.actionItems.length; i++) {
+    if (String(APP.actionItems[i].id) === String(aiId)) {
+      APP.actionItems[i].status = newStatus;
+      if (newStatus === 'Complete') {
+        APP.actionItems[i].completedDate = new Date().toISOString();
+      }
+      break;
+    }
+  }
+
+  // Refresh the panel immediately (optimistic)
+  refreshMyTasksList();
+
+  // Persist to server
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('Action item updated', 'success');
+      // Reload to sync counts and badges
+      reloadData(function() { refreshMyTasksList(); });
+    })
+    .withFailureHandler(function(err) {
+      showToast('Error: ' + err.message, 'error');
+      // Revert by reloading
+      reloadData(function() { refreshMyTasksList(); });
+    })
+    .updateTaskActionItem(aiId, { status: newStatus });
+}
+
+document.addEventListener('dragend', function(e) {
+  if (e.target.classList) e.target.classList.remove('dragging');
+});

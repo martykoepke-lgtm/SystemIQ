@@ -1,0 +1,65 @@
+IT Indicated in Gold,"System
+Policy/Standard/Guideline",Type,Priority,Confirmed in Gold (Validated),SCI Point of Contact ,Analyst,Application,Specialty/Primary Impacted Dept./Discipline,Specialized Workflow Needed?,Brief Details,Link to Policy/ Guideline ,Intake Slide,"Link to Document/ 
+EHR Requirements",System Sponsor,Comments/Follow-up,CSH Standards of Practice - https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice,,,
+,E-Signature in Epic Templates,,1,,Ashley Hubbard,,Orders,Provider/Nursing,,,,,,,,,,,
+,Antimicrobial Steardship for ARTIs,,1,,Ashley Hubbard,,Willow / Orders,Pharmacy,No,,,,,,,,,,
+,C-Auris,Guideline,1,No,Brooke Snow,,Clin Doc / Orders,Provider/Nursing,Yes,,,System Initiative Candida auris ,Candida auris _SCI Workbook,Becky Leach,Each Epic instance has slightly different build - need to finalize build and workflow with Bugsy piece included in order to finalize Gold build,,,,
+,Core Nursing - Standard of Practice,,1,Yes,Brooke Snow & Marisa Radick,,Clin Doc,Nursing,No,,"https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice
+
+CommonSpirit Core Nursing Standards of Practice.docx",,Gold Build: EHR Content Review- Core Nursing SOP,,,,,,
+,Yale Swallow Screen ,Policy,1,Yes,Dawn Jacobson,,Clin Doc,Provider/Nursing,No,"Via email on 11/20. Christi confirmed in Gold, and will remove TF as exclusion criteria.
+2.11 - Stroke Narrator does not contain Yale Swallow Screening.  ASAP team is replacing the current screening documentation with Yale for Wave 3.",,,,,,,,,
+,Age Friendly Documentation,Board Goal,1,No,Dawn Jacobson,,Clindoc,Provider/Nursing,Yes,,,,,,,,,,
+Yes,Suicide Risk Policy,Policy,1,Yes,Jason & Sherry,,Clin Doc,BHU/Nursing,Yes,See details. Note: No decisions yet as to which dashboards in Epic Gold will update with which suicide risk details,Clinical A-025 Identifying and Assessing Patients at Risk of Suicide-Self-Harm PandP PENDING,,,Paul Rains,,,,,
+,Emergency Services - Standard of Practice,Standards of practice,1,Yes,Jason Mihos & Sherry Brennaman,,ASAP,ED nursing,No,See details. Questions about next steps (ED SoP updates needed?) -- will confirm with Tiffany,CSH Emergency Department Nursing Standards of Practice -FInal.docx,,,,,,,,
+,Bladder Management,Policy,1,No,Trudy Finch,,Clin Doc / Orders,Provider/Nursing,Yes,Ensuring the Indications from policy are in Gold,"Bladder Management Policy.pdf
+
+https://commonspirit-national.policystat.com/policy/13986669/latest#autoid-rdymk",,EHR Content,Rebecca Leach ,"Nursing-Missing 'Reason for Continuing IUC"" = Epidural in Place.  Policy does not recognize ""Provider Managed"" as a reason to continue.  Nurse is able to place an IUC without a LIP Order.  Not a clear place to document alternative management strategies attempted.  
+
+Provider-The order for Urinary Catheter does not have any required 'Criteria for Use' documentation requirements.    ",,,,
+,Perioperative - Standard of Practice,,1,,Kim Wilis,,,Nursing,No,,"https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice
+
+
+4. Perioperative Nursing Standards of Practice (Preop, Intraop, Postop) Final",,,,,,,,
+,ICU Liberation,Guideline,1,Yes,Marisa Radick,,Clin Doc / Orders,Critical Care,Yes,Ensuring elements of the A-F bundle are built in Gold,CSH ICU Liberation ABCDEF Bundle Clinical Guidelines -Update Draft 2024).docx,Intake Slide ALM 4139,,Brenda Downs,"See tab for missing elements of bundle
+Met with clin doc analysts on 2/11 to review needed build changes ",,,,
+,Valuables and Belongings,Policy,1,No,Melissa Plummer,,Clin Doc,Nursing,Yes,Discharge for ED and for IP missing itemized list of pt belongings. Standardized Essential belongings not in Periop. - SEE Valuables & Belongings Tab,Template On Hold for V&B,,,,,,,,
+,DAST-10 tool ,,1,No,Melissa Plummer,,Clin Doc,BHU/Nursing/Stork,Yes,Not in Epic Gold SEE Dast-10 Tab,No National Policy or Guideline,,,,,,,,
+,Perinatal - Standad of Practice,,1,No,Melissa Plummer & Robin DeLorenzo,,,Nursing,No,,https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice,,,,"Attached link does direct to site for SOP, however when clicking on Perinatal, the user is directed to WICI Institute page, which does not include SOP. VMMC does not have OB dept. Primary care may offer OB/GYN services, but patients are sent to FHS or another facility for delivery. ",,,,
+,Telemetry,Policy,1,,Nicole Johnson,,Clin Doc / Orders,Provider/Nursing,Yes,,,,,,,,,,
+Yes,Vascular Access,Policy,1,Yes,Robin DeLorenzo,,Clin Doc / Orders,Provider/Nursing,No,,"Clinical A-012 Vascular Access Selection, Adult POLICY w-Att 072722.pdf",,,,There is a DMND that is in progress to match the policy,,,,
+,Extravasavation Tx,Policy,1,Yes,Robin DeLorenzo,,Clin Doc / Orders,Provider/Nursing,Yes,,,,,,A DMND is in progress to update the interventions per policy,,,,
+,AMPAC Tool,Documentation,1,Yes,Robin DeLorenzo,,"Therapies OT,PT, SLP",Therapy,No,a documentation tool in Flowsheets needs licensure not approved,,,,,This is present in GOLD TST under therapy login,,,,
+,Pediatric - Standards of Practice,,1,No,Robin DeLorenzo & Melissa Plummer,,,Nursing,No,,https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice,,,,VMMC does not currently have a PEDs dept.  There are clinics but the SOP is specific to IP.,,,,
+,"Details
+Will require multiple modules (ASAP, Interventional Radiology, Lumens, all Procedural areas). 5-10 hours of updates for each impacted team.  Will require update to procedral narrators and Sedation Narrator",Policy,1,No,Sherry Brennaman,,Clin Doc,Provider/Nursing,Yes,"Details
+Will require multiple modules (ASAP, Interventional Radiology, Lumens, all Procedural areas)",Moderate and Deep Sedation SCI Workbook,,,,,,,,
+,Point Click Care (State of Washington-EDIE (ED Information Exchange for WA State),Epic Best Practice,1,Yes,Sherry Brennaman ,,Clin Doc / Orders / Willow,Provider/Nursing/Pharmacy,Yes,Care Coordination is requesting to be included in this work,,,,,,,,,
+,HAPI ,Policy,1,Yes,Trudy Finch,,Clin Doc / Orders,Provider/Nursing,Yes,,Facility Template Policy - Hospital Acquired Pressure Injury (HAPI) Management EDITED.pdf,,https://drive.google.com/drive/folders/1JlJahX8YcyVko8eoEKoS0iyyDbiPq_g3?usp=drive_link,,,,,,
+,Chemo Policy,Policy,1,Yes,Trudy Finch,,Oncology,Oncology,No,Work with Yvette,Antineoplastic -Chemotherapy - Immunotherapy- Prescribing and Administration for Oncology Indications POLICY- Clinical A-027.pdf,Antineoplastic -Chemotherapy - Immunotherapy- Prescribing and Administration for Oncology Indications PROCEDURE- Clinical A-027P.pdf,,,,,,,
+Yes,Vesicants,Policy,1,Yes,Van Nguyen,,Clin Doc / Orders / Willow,Provider/Nursing/Pharmacy,Yes with Extravasation,vesicant meds identifed on the MAR,Alpha--Vesicant List Extravasation - Management and Treatment Guidance.docx,,,,,,,,
+,Oncology Flowsheet,CAT Decisions,1,Yes,Yvette Kirk,,Oncology,,Yes,Chemo Admin,,,,Lise/Marcia,Submitted viaTask Force,,,,
+,CMU Virtual Telemetry - GE Carescape/Ascom,Project,2,,Brooke Snow,,Clin Doc / Orders,Provider/Nursing,Yes,Virtual Telemetry units monitored from CareBase in AZ,Project number: 1014176_0011081,,,Gail Daily,,,,,
+,Virtually Integrated Care,Best Practice,2,,Brooke Snow,,Clin Doc / Orders,Provider/Nursing,Yes,Security Set up to identify virtual nurses,,,,,,,,,
+,SDOH,Guidelines,2,No,Marty Koepke,,Clin Doc,Patient Care Services,Yes,Missing OPA for SW when safety responses are positive. ,,,,,"""For Non Harm questions > when Pt responds YES that they want a community, we need an OPA > Referral to SW. Community resource link needs to be available in Social Drivers to support WFs adding community resources to After Visit Summary. When SDOH driver responses score high enough across any/all domains an OPA fires for referral to SW. 
+Should we adopt this for Gold?
+Previous Decision made?
+
+""",,,,
+,Sepsis Protocol,Guideline,2,,Marisa Radick,,Clin Doc / Orders,Provider/Nursing,Yes,,https://commonspirit-national.policystat.com/policy/18612396/latest#autoid-z4rar,,,Brenda Downs,,,,,
+,Preferred Language,Policy,2,Yes,Marisa Radick,,Nursing,Patient Care Services,No,Ensuring the threshold languages are built in Gold,,,,Lisa Macri,See tab for missing languages,,,,
+,Critical Care - Standard of Practice,,2,,Marisa Radick & Brooke Snow,,,Nursing,No,,"https://sites.google.com/commonspirit.org/nnpatientcareservices/home/professional-practice/standards-of-practice
+
+CommonSpirit Critical Care Nursing Standards of Practice Final-Approved Header.docx",,,,,,,,
+,RT Pulmonary Mechanics,Requested by System Leader,2,,Marty Koepke,,Clin Doc,RT,Yes?,Work with Gold Analysts and System leaders for details,,,,,,,,,
+,Drug Screen Order for OB,Ticket # ,2,,Melissa,,Stork,OB,Yes,,,,,Mindy Foster,Submitted viaTask Force,,,,
+,Admit to NICU- precheck Vitamin K,Ticket # ,2,,Melissa,,Stork,NICU,No,From SCOPE - Talk Diedre about details,,Mountain Admit to Neonatal ICU order set updates,,,,,,,
+,National Numbers on AVS,Requested by System Individual,2,,Melissa Plummer,,Clin Doc,Nursing,No,List of standard national numbers needed on AVS,National Hotline Numbers- Epic Gold,,,Holly Gibbs/ Connie,"Submitted viaTask Force-Check what is built, f/u with Tiff",,,,
+,Outpatient in a bed,Requested by System VP Care Coordination,2,,Melissa Plummer,,Clin Doc,Care Coordination/Provider,Yes,Single order for outpatient in a bed,Copy of OIB Guidance - Final.docx,,,Gail Moxley,Submitted viaTask Force-does it match current updates to guideline?,,,,
+,OralKleen (Comprehensive Oral Care),Policy,2,No,Sherry Brennaman,,Clin Doc,Nursing,No,Missing 2 options in Oral Care respose. Being updated for Wave 3.,Comprehensive Oral Care SCI Workbook,,,,,,,,
+,Antimicrobial Prophylaxis Guidelines,Guidelines,2,No,Van ,,Willow / Orders,Pharmacy,No,,,,,,,,,,
+,REMS Medications and Denials,,2,No,Van ,,Willow,Pharmacy,No,this was not approved to be built in any envionrment yet. not in MTN in current state so not slated for GOLD. DMND0007976 is assigned 4- low priority at this time,,,,,,,,,
+,Quality Reporting,,2,,Team,,,Quality,No,Top 25 Quality Reports,Quality Priority Reporting Build Review-Epic Gold New Instance ,,,Tracy Sklarr,"Due on February 6, 2026",,,,
+,Epic Denial Work Queue,Ticket # ,3,,Marisa Radick,,Grand Central/ Prelude?,Rev Cycle,,,,Epic Denial Work Queue Intake Slides,,Diane Pirak,,,,,
+,HAPI RT Devices,System Request,N/A,,Marty Koepke,,Clin Doc,RT,No,Awaiting Final Design for Epic,,,,,,,,Epic Gold ->,Drive
+,Harm to Others Policy,Policy,N/A,,,,Clin Doc,BHU/Nursing,Yes,Awaiting Final Design - Let's make sure ,,,,Paul Rains,Design Not Complete,,,,

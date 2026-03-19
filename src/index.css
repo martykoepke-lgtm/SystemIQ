@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/* ─── Light theme (default) ─── */
+:root {
+  --primary-brand-color: #8B2B6E;
+  --primary-brand-color-light: #f5e8f0;
+  --primary-brand-color-soft: #d4a0c4;
+  --primary-brand-color-dark: #6a1f53;
+
+  --bg-page: #f9fafb;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f3f4f6;
+  --bg-sidebar: #1e293b;
+  --bg-input: #ffffff;
+
+  --text-heading: #111827;
+  --text-body: #374151;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+
+  --border-default: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  --color-critical: #dc2626;
+  --color-high: #f59e0b;
+  --color-medium: #3b82f6;
+  --color-low: #6b7280;
+
+  --color-epic-gold: #f59e0b;
+  --color-system-project: #8b5cf6;
+  --color-system-initiative: #0ea5e9;
+  --color-governance: #6366f1;
+  --color-ticket: #f97316;
+  --color-general-support: #6b7280;
+}
+
+/* ─── Dark theme ─── */
+html.dark {
+  --bg-page: #0f172a;
+  --bg-surface: #1e293b;
+  --bg-surface-hover: #334155;
+  --bg-sidebar: #0f172a;
+  --bg-input: #1e293b;
+
+  --text-heading: #f1f5f9;
+  --text-body: #cbd5e1;
+  --text-muted: #64748b;
+  --text-inverse: #0f172a;
+
+  --border-default: #334155;
+  --border-strong: #475569;
+}
+
+*, ::before, ::after {
+  border-color: var(--border-default);
+}
+body {
+  background-color: var(--bg-page);
+  color: var(--text-body);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+}
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-heading);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in { animation: slideIn 0.3s ease-out; }

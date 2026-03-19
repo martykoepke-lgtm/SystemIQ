@@ -1,0 +1,569 @@
+// ============================================================
+// PRCC v2 — ScriptCore: State Management & Initialization
+// ============================================================
+
+var APP = {
+  config: null,
+  currentView: 'command',
+  initiatives: [],
+  tasks: [],
+  pipeline: [],
+  archived: [],
+  counts: null,
+  // Detail navigation
+  currentInitiativeId: null,
+  currentTaskId: null,
+  // View state
+  homeView: 'list',
+  activeFilter: 'all',
+  analystFilter: '',
+  analystGroupBy: 'initiative',
+  sciFilter: '',
+  moduleFilter: '',
+  moduleGroupBy: 'status',
+  myTasksFilter: '',
+  listSortCol: null,
+  listSortAsc: true,
+  // Dropdown filters
+  venueFilters: [],
+  roleFilters: [],
+  specialtyFilters: [],
+  // My Tasks panel
+  myTasksPaneOpen: true,
+  myTasksMode: 'tasks',
+  actionItems: [],
+  // Accordion list state
+  listExpanded: {},
+  listTaskExpanded: {},
+  // Dashboard filter state
+  dashFilter: {},
+  // Executive dashboard state
+  execFilter: {},
+  execItemsTab: 'initiatives',
+  execShowAll: false
+};
+
+// ---- INITIALIZATION ----
+document.addEventListener('DOMContentLoaded', function() {
+  google.script.run
+    .withSuccessHandler(function(bundle) {
+      APP.config = bundle.config;
+      APP.initiatives = bundle.initiatives || [];
+      APP.tasks = bundle.tasks || [];
+      APP.actionItems = bundle.actionItems || [];
+      APP.counts = bundle.counts || {};
+      APP.pipeline = bundle.pipeline || [];
+      APP.archived = bundle.archived || [];
+      navigate('command');
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('content-area').innerHTML =
+        '<div class="empty-state"><span class="material-icons-round">error</span><p>Failed to load: ' + err.message + '</p></div>';
+    })
+    .getHomeBundle();
+});
+
+// ---- NAVIGATION ----
+function navigate(view) {
+  APP.currentView = view;
+  APP.currentInitiativeId = null;
+  APP.currentTaskId = null;
+
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+
+  var toggle = document.getElementById('view-toggle');
+  var titles = {
+    command: 'Command View',
+    analyst: 'Analyst View',
+    module: 'Module View',
+    sci: 'SCI View',
+    pipeline: 'Pipeline (CSH PSG)',
+    executive: 'Executive Dashboard',
+    dashboard: 'Dashboard',
+    archived: 'Archived Components'
+  };
+  toggle.style.display = (view === 'command') ? 'flex' : 'none';
+  document.getElementById('view-title').textContent = titles[view] || view;
+
+  switch (view) {
+    case 'command':   loadCommandView(); break;
+    case 'analyst':   loadAnalystView(); break;
+    case 'module':    loadModuleView(); break;
+    case 'sci':       loadSCIView(); break;
+    case 'pipeline':  loadPipelineView(); break;
+    case 'executive':  loadExecutiveView(); break;
+    case 'dashboard': loadDashboardView(); break;
+    case 'archived':  loadArchivedView(); break;
+  }
+}
+
+/** Navigate into an initiative detail view */
+function openInitiativeDetail(id) {
+  APP.currentView = 'initiative-detail';
+  APP.currentInitiativeId = id;
+  APP.currentTaskId = null;
+  document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
+  document.getElementById('view-toggle').style.display = 'none';
+  renderInitiativeDetail(id);
+}
+
+/** Navigate into a task detail view */
+function openTaskDetail(taskId) {
+  APP.currentView = 'task-detail';
+  APP.currentTaskId = taskId;
+  document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
+  document.getElementById('view-toggle').style.display = 'none';
+  renderTaskDetail(taskId);
+}
+
+// ---- RELOAD DATA ----
+function reloadData(cb) {
+  google.script.run
+    .withSuccessHandler(function(bundle) {
+      APP.initiatives = bundle.initiatives || [];
+      APP.tasks = bundle.tasks || [];
+      APP.actionItems = bundle.actionItems || [];
+      APP.counts = bundle.counts || {};
+      APP.pipeline = bundle.pipeline || [];
+      APP.archived = bundle.archived || [];
+      if (bundle.config) {
+        APP.config.scis = bundle.config.scis;
+        APP.config.analysts = bundle.config.analysts;
+      }
+      if (cb) cb();
+    })
+    .getHomeBundle();
+}
+
+// ---- FILL SELECT HELPER ----
+function fillSelect(id, options, selected) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = '';
+  options.forEach(function(opt) {
+    var o = document.createElement('option');
+    o.value = opt; o.textContent = opt || '— Select —';
+    if (selected && opt === selected) o.selected = true;
+    el.appendChild(o);
+  });
+}
+
+// ============================================================
+// MULTI-SELECT WIDGET
+// Renders pill tags + dropdown. Stores comma-separated in a
+// hidden field. Usage:
+//   msInit(containerId, options, currentValues, hiddenFieldId)
+//   msGetValue(hiddenFieldId) => 'ClinDoc,OPA,Orders'
+// ============================================================
+
+function msInit(containerId, options, currentValues, hiddenFieldId) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+
+  var vals = [];
+  if (currentValues) {
+    vals = String(currentValues).split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+  }
+
+  // Store state on the container element
+  container._msOptions = options;
+  container._msValues = vals;
+  container._msHidden = hiddenFieldId;
+
+  msRefresh(containerId);
+}
+
+function msAdd(containerId, value) {
+  var container = document.getElementById(containerId);
+  if (!container || !value) return;
+  if (container._msValues.indexOf(value) < 0) {
+    container._msValues.push(value);
+  }
+  msRefresh(containerId);
+}
+
+function msRemove(containerId, value) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  container._msValues = container._msValues.filter(function(v) { return v !== value; });
+  msRefresh(containerId);
+}
+
+function msRefresh(containerId) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+
+  var vals = container._msValues || [];
+  var options = container._msOptions || [];
+  var hiddenId = container._msHidden;
+
+  // Update hidden field
+  if (hiddenId) {
+    var hidden = document.getElementById(hiddenId);
+    if (hidden) hidden.value = vals.join(',');
+  }
+
+  // Render pills + dropdown
+  var html = '<div class="ms-pills">';
+  vals.forEach(function(v) {
+    html += '<span class="ms-pill">' + esc(v) +
+            ' <span class="ms-pill-x" onclick="msRemove(\'' + containerId + '\',\'' + esc(v.replace(/'/g, "\\'")) + '\')">&times;</span></span>';
+  });
+  html += '</div>';
+
+  // Dropdown of remaining options
+  var remaining = options.filter(function(o) { return vals.indexOf(o) < 0; });
+  html += '<select class="ms-dropdown" onchange="if(this.value){msAdd(\'' + containerId + '\',this.value);this.value=\'\';}">';
+  html += '<option value="">+ Add…</option>';
+  remaining.forEach(function(o) {
+    html += '<option value="' + esc(o) + '">' + esc(o) + '</option>';
+  });
+  html += '</select>';
+
+  container.innerHTML = html;
+}
+
+function msGetValue(hiddenFieldId) {
+  var hidden = document.getElementById(hiddenFieldId);
+  return hidden ? hidden.value : '';
+}
+
+// ============================================================
+// TAG HELPERS
+// ============================================================
+
+function initiativeStatusTag(status) {
+  var map = {
+    'Not Started': 'tag-yellow',
+    'Define': 'tag-orange',
+    'Ready for Discussion': 'tag-purple',
+    'In Progress': 'tag-accent',
+    'Under Review': 'tag-teal',
+    'Completed': 'tag-green',
+    'On Hold': 'tag-orange',
+    'Deferred': 'tag-muted',
+    'Dismissed': 'tag-muted'
+  };
+  return '<span class="tag ' + (map[status] || 'tag-muted') + '">' + esc(status || '—') + '</span>';
+}
+
+function taskStatusTag(status) {
+  var map = {
+    'Identified': 'tag-yellow',
+    'Needs Analyst - Discussion': 'tag-orange',
+    'Needs Analyst - Build': 'tag-orange',
+    'Build Analyst Assigned': 'tag-accent',
+    'Build In Progress': 'tag-teal',
+    'Non Prod Testing': 'tag-purple',
+    'On Hold': 'tag-muted',
+    'Closed - Completed': 'tag-green',
+    'Closed - Deferred': 'tag-muted',
+    'Dismissed': 'tag-muted'
+  };
+  return '<span class="tag ' + (map[status] || 'tag-muted') + '">' + esc(status || '—') + '</span>';
+}
+
+function priorityTag(priority) {
+  var map = { 'Critical': 'tag-red', 'High': 'tag-orange', 'Medium': 'tag-yellow', 'Low': 'tag-green' };
+  return '<span class="tag ' + (map[priority] || 'tag-muted') + '">' + esc(priority || '—') + '</span>';
+}
+
+function typeTag(type) {
+  if (!type) return '';
+  var map = { 'Guideline': 'tag-purple', 'Policy': 'tag-accent', 'Board Goal': 'tag-orange', 'Standard Practice': 'tag-teal' };
+  return '<span class="tag ' + (map[type] || 'tag-muted') + '">' + esc(type) + '</span>';
+}
+
+function moduleTag(mod) {
+  if (!mod) return '';
+  return '<span class="tag tag-muted">' + esc(mod) + '</span>';
+}
+
+function actionItemStatusTag(status) {
+  var map = {
+    'Not Started': 'tag-yellow',
+    'In Progress': 'tag-accent',
+    'Complete': 'tag-green',
+    'Deferred': 'tag-muted'
+  };
+  return '<span class="tag ' + (map[status] || 'tag-muted') + '">' + esc(status || '—') + '</span>';
+}
+
+function noteTypeTag(noteType) {
+  var map = { 'General': 'tag-muted', 'Decision': 'tag-green', 'Blocker': 'tag-red', 'Status Update': 'tag-accent', 'Meeting Notes': 'tag-purple' };
+  return '<span class="tag ' + (map[noteType] || 'tag-muted') + '">' + esc(noteType || 'General') + '</span>';
+}
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  var d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+function formatDate(d) {
+  if (!d) return '—';
+  var s = String(d);
+  if (s.includes('T')) s = s.split('T')[0];
+  try {
+    var parts = s.split('-');
+    if (parts.length === 3) {
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[parseInt(parts[1],10)-1] + ' ' + parseInt(parts[2],10) + ', ' + parts[0];
+    }
+  } catch(e) {}
+  return s;
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  var d = new Date(isoStr);
+  var now = new Date();
+  var diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return formatDate(isoStr);
+}
+
+/** Get tasks for a specific initiative */
+function getTasksForInitiative(initId) {
+  return APP.tasks.filter(function(t) {
+    return String(t.initiativeId) === String(initId);
+  });
+}
+
+/** Count open tasks for an initiative */
+function countOpenTasks(initId) {
+  var closedStatuses = ['Closed - Completed', 'Closed - Deferred', 'Dismissed'];
+  var tasks = getTasksForInitiative(initId);
+  return tasks.filter(function(t) { return closedStatuses.indexOf(t.status) < 0; }).length;
+}
+
+/** Count total tasks for an initiative */
+function countTotalTasks(initId) {
+  return getTasksForInitiative(initId).length;
+}
+
+/** Get initiative by id from APP.initiatives */
+function getInitiativeFromCache(id) {
+  for (var i = 0; i < APP.initiatives.length; i++) {
+    if (String(APP.initiatives[i].id) === String(id)) return APP.initiatives[i];
+  }
+  return null;
+}
+
+/** Get task by id from APP.tasks */
+function getTaskFromCache(id) {
+  for (var i = 0; i < APP.tasks.length; i++) {
+    if (String(APP.tasks[i].id) === String(id)) return APP.tasks[i];
+  }
+  return null;
+}
+
+/** Get active (board-visible) initiatives */
+function getActiveInitiatives() {
+  var boardStatuses = ['Not Started', 'Define', 'Ready for Discussion', 'In Progress', 'Under Review', 'On Hold', 'Deferred'];
+  return APP.initiatives.filter(function(i) {
+    return boardStatuses.indexOf(i.status) >= 0;
+  });
+}
+
+/** Get filtered initiatives based on current filter + dropdown filters */
+function getFilteredInitiatives() {
+  var inits = getActiveInitiatives();
+  switch (APP.activeFilter) {
+    case 'high':
+      inits = inits.filter(function(i) { return i.priority === 'Critical' || i.priority === 'High'; });
+      break;
+    case 'unassigned':
+      inits = inits.filter(function(i) { return !i.primarySCI; });
+      break;
+  }
+
+  // Dropdown filters — match if initiative has ANY of the selected values
+  if (APP.venueFilters.length) {
+    inits = inits.filter(function(i) {
+      var vals = csvToArray(i.venues);
+      return APP.venueFilters.some(function(f) { return vals.indexOf(f) >= 0; });
+    });
+  }
+  if (APP.roleFilters.length) {
+    inits = inits.filter(function(i) {
+      var vals = csvToArray(i.rolesImpacted);
+      return APP.roleFilters.some(function(f) { return vals.indexOf(f) >= 0; });
+    });
+  }
+  if (APP.specialtyFilters.length) {
+    inits = inits.filter(function(i) {
+      var vals = csvToArray(i.specialtyServiceLine);
+      return APP.specialtyFilters.some(function(f) { return vals.indexOf(f) >= 0; });
+    });
+  }
+
+  return inits;
+}
+
+/** Comma-separated string to array */
+function csvToArray(str) {
+  if (!str) return [];
+  return String(str).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+}
+
+/** Render pills from comma-separated string */
+function renderPills(csvStr, cssClass) {
+  var arr = csvToArray(csvStr);
+  if (!arr.length) return '<span class="text-muted">—</span>';
+  return arr.map(function(v) {
+    return '<span class="pill ' + (cssClass || '') + '">' + esc(v) + '</span>';
+  }).join(' ');
+}
+
+// ---- VIEW MODE ----
+function setHomeView(mode) {
+  APP.homeView = mode;
+  document.querySelectorAll('.toggle-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.view === mode);
+  });
+  loadCommandView();
+}
+
+function filterMetric(filter) {
+  APP.activeFilter = filter;
+  document.querySelectorAll('.metric-pill').forEach(function(p) {
+    p.classList.toggle('active', p.dataset.filter === filter);
+  });
+  loadCommandView();
+}
+
+// ---- DROPDOWN FILTER HELPERS ----
+function toggleFilterPopover(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var isOpen = el.classList.contains('open');
+  // Close all popovers first
+  document.querySelectorAll('.filter-popover').forEach(function(p) { p.classList.remove('open'); });
+  if (!isOpen) el.classList.add('open');
+}
+
+function filterPopoverSearch(inputEl, popoverId) {
+  var q = inputEl.value.toLowerCase();
+  var popover = document.getElementById(popoverId);
+  if (!popover) return;
+  popover.querySelectorAll('label').forEach(function(lbl) {
+    var txt = lbl.textContent.toLowerCase();
+    lbl.style.display = txt.indexOf(q) >= 0 ? '' : 'none';
+  });
+}
+
+function applyDropdownFilter(type) {
+  var popover = document.getElementById('filter-popover-' + type);
+  if (!popover) return;
+  var checked = [];
+  popover.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) {
+    checked.push(cb.value);
+  });
+  if (type === 'venue') APP.venueFilters = checked;
+  else if (type === 'role') APP.roleFilters = checked;
+  else if (type === 'specialty') APP.specialtyFilters = checked;
+  document.querySelectorAll('.filter-popover').forEach(function(p) { p.classList.remove('open'); });
+  loadCommandView();
+}
+
+function clearDropdownFilter(type) {
+  if (type === 'venue') APP.venueFilters = [];
+  else if (type === 'role') APP.roleFilters = [];
+  else if (type === 'specialty') APP.specialtyFilters = [];
+  document.querySelectorAll('.filter-popover').forEach(function(p) { p.classList.remove('open'); });
+  loadCommandView();
+}
+
+// Close popovers when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.filter-dropdown-wrap')) {
+    document.querySelectorAll('.filter-popover').forEach(function(p) { p.classList.remove('open'); });
+  }
+});
+
+// ---- THEME ----
+function toggleTheme() {
+  document.body.classList.toggle('light-mode');
+  var icon = document.getElementById('theme-icon');
+  icon.textContent = document.body.classList.contains('light-mode') ? 'light_mode' : 'dark_mode';
+}
+
+// ---- SETUP ----
+function runSetup() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      alert(res.message || 'Setup complete');
+      reloadData(function() { navigate(APP.currentView); });
+    })
+    .withFailureHandler(function(err) { alert('Setup error: ' + err.message); })
+    .setupPRCC();
+}
+
+// ---- MIGRATION ----
+function runMigration() {
+  if (!confirm('Migrate data from Master Missing Components Log into the new Initiatives & Tasks sheets?\n\nThis groups rows by policy name to create Initiatives, with individual Tasks under each.\n\nThe original Master Log data will NOT be deleted.')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        alert(res.message);
+        reloadData(function() { navigate('command'); });
+      } else {
+        alert('Migration issue: ' + res.error);
+      }
+    })
+    .withFailureHandler(function(err) { alert('Migration error: ' + err.message); })
+    .migrateFromMasterLog();
+}
+
+function runSelectiveMigration() {
+  var idsInput = prompt('Enter the old Master Log IDs to group into ONE initiative (comma-separated):\n\nExample: MCI-0010, MCI-0011, MCI-0012, MCI-0013');
+  if (!idsInput) return;
+
+  var name = prompt('Enter the Initiative name for this group:\n\nExample: Social Determinants of Health');
+  if (!name) return;
+
+  var ids = idsInput.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (!ids.length) { alert('No IDs entered.'); return; }
+
+  if (!confirm('Create Initiative "' + name + '" from these ' + ids.length + ' rows?\n\n' + ids.join(', ') + '\n\nOriginal Master Log data will NOT be deleted.')) return;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        alert(res.message);
+        reloadData(function() { navigate('command'); });
+      } else {
+        alert('Selective migration issue: ' + (res.error || 'Unknown error'));
+      }
+    })
+    .withFailureHandler(function(err) { alert('Selective migration error: ' + err.message); })
+    .migrateSelectedRows(ids, name);
+}
+
+// ---- MODAL HELPERS ----
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+// ---- TOAST / NOTIFICATION ----
+function showToast(msg, type) {
+  var toast = document.createElement('div');
+  toast.className = 'toast ' + (type || 'info');
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.classList.add('show'); }, 10);
+  setTimeout(function() {
+    toast.classList.remove('show');
+    setTimeout(function() { toast.remove(); }, 300);
+  }, 3000);
+}

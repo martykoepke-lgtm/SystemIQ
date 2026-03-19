@@ -1,0 +1,59 @@
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>EG-SRC</h1>
+    <span>Epic Gold<br>System Readiness<br>Command Center</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">HOME</div>
+    <div class="nav-item active" data-view="command" onclick="navigate('command')">
+      <span class="material-icons-round">dashboard</span>
+      Command View
+    </div>
+
+    <div class="nav-section-label">VIEWS</div>
+    <div class="nav-item" data-view="analyst" onclick="navigate('analyst')">
+      <span class="material-icons-round">assignment_ind</span>
+      Analyst
+    </div>
+    <div class="nav-item" data-view="module" onclick="navigate('module')">
+      <span class="material-icons-round">view_module</span>
+      Module
+    </div>
+    <div class="nav-item" data-view="sci" onclick="navigate('sci')">
+      <span class="material-icons-round">engineering</span>
+      SCI
+    </div>
+    <div class="nav-item" data-view="pipeline" onclick="navigate('pipeline')">
+      <span class="material-icons-round">route</span>
+      Pipeline (CSH PSG)
+    </div>
+
+    <div class="nav-section-label">TOOLS</div>
+    <div class="nav-item" data-view="executive" onclick="navigate('executive')">
+      <span class="material-icons-round">leaderboard</span>
+      Executive
+    </div>
+    <div class="nav-item" data-view="dashboard" onclick="navigate('dashboard')">
+      <span class="material-icons-round">analytics</span>
+      Dashboard
+    </div>
+    <div class="nav-item" data-view="archived" onclick="navigate('archived')">
+      <span class="material-icons-round">inventory_2</span>
+      Archived
+    </div>
+
+    <div class="nav-section-label">SYSTEM</div>
+    <div class="nav-item" onclick="runSetup()">
+      <span class="material-icons-round">build</span>
+      Setup / Backfill IDs
+    </div>
+    <div class="nav-item" onclick="runMigration()">
+      <span class="material-icons-round">move_up</span>
+      Migrate All Legacy Data
+    </div>
+    <div class="nav-item" onclick="runSelectiveMigration()">
+      <span class="material-icons-round">input</span>
+      Migrate Selected Rows
+    </div>
+  </nav>
+</aside>
