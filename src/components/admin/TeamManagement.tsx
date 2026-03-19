@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Pencil, Users, UserCog, Loader2, ChevronDown, ChevronRight, Shield } from 'lucide-react';
+import { Plus, Pencil, Users, Loader2, ChevronDown, ChevronRight, Shield } from 'lucide-react';
 import { fetchTeamMembers } from '../../lib/queries';
 import { createTeamMember, updateTeamMember, type CreateTeamMemberInput } from '../../lib/mutations';
 import type { TeamMember } from '../../lib/supabase';

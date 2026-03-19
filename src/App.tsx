@@ -29,20 +29,14 @@ import CostAnalytics from './components/analytics/CostAnalytics';
 import PortfolioInsights from './components/analytics/PortfolioInsights';
 import TimelineView from './components/analytics/TimelineView';
 import GoalsView from './components/analytics/GoalsView';
-import type { InitiativeWithDetails, TaskWithDetails, PipelineItem, Initiative } from './lib/supabase';
-import { promoteToEpicGold, promoteFromPipeline } from './lib/mutations';
+import type { InitiativeWithDetails, TaskWithDetails, PipelineItem } from './lib/supabase';
+import { promoteFromPipeline } from './lib/mutations';
 import {
-  Zap,
-  Home,
   Users,
-  Boxes,
-  UserCog,
-  GitPullRequestArrow,
   LayoutDashboard,
   Briefcase,
   ClipboardList,
   BarChart3,
-  Shield,
   Settings,
   SlidersHorizontal,
   Gauge,
