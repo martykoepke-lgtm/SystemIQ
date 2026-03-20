@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Loader2, Zap, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Plus, Loader2, Zap, ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
 import { fetchInitiativesWithCounts, fetchAllTasks, fetchTeamMembers } from '../../lib/queries';
 import type { Initiative, Task, TeamMember } from '../../lib/supabase';
 import {
@@ -11,6 +11,8 @@ import {
 } from '../../lib/constants';
 
 type InitiativeWithCounts = Initiative & { task_count: number; open_task_count: number };
+type SortKey = 'display_id' | 'name' | 'eg_subtype' | 'primary_sci' | 'status' | 'go_live_wave' | 'tasks' | 'priority';
+type SortDir = 'asc' | 'desc';
 
 interface EpicGoldViewProps {
   onOpenInitiative: (id: string) => void;
@@ -31,6 +33,8 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
   const [sciFilter, setSciFilter] = useState<string>('');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('display_id');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   useEffect(() => {
     loadData();
@@ -72,7 +76,26 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
   }, [tasks]);
   const ARCHIVED_STATUSES = new Set(['Completed', 'Dismissed', 'Deferred']);
 
-  // Filter to Epic Gold — exclude archived, sort On Hold to bottom
+  // Task map — must be defined before egInitiatives for sort
+  const tasksByInitiative = useMemo(() => {
+    const map: Record<string, Task[]> = {};
+    for (const t of tasks) {
+      if (!map[t.initiative_id]) map[t.initiative_id] = [];
+      map[t.initiative_id].push(t);
+    }
+    return map;
+  }, [tasks]);
+
+  // SCI names (fetch all team members for this)
+  const [allMembers, setAllMembers] = useState<TeamMember[]>([]);
+  useEffect(() => { fetchTeamMembers().then(setAllMembers); }, []);
+  const memberMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    allMembers.forEach(m => { map[m.id] = m.name; });
+    return map;
+  }, [allMembers]);
+
+  // Filter to Epic Gold — exclude archived, sort by column
   const egInitiatives = useMemo(() => {
     let items = allEG.filter(i => !ARCHIVED_STATUSES.has(i.status));
     if (waveFilter !== 'all') items = items.filter(i => i.go_live_wave === waveFilter);
@@ -88,24 +111,30 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
       const initIdsWithModule = new Set(tasks.filter(t => t.module === moduleFilter).map(t => t.initiative_id));
       items = items.filter(i => initIdsWithModule.has(i.id));
     }
-    // Sort: On Hold items go to bottom
+    // Sort by selected column
     items.sort((a, b) => {
-      const aHold = a.status === 'On Hold' ? 1 : 0;
-      const bHold = b.status === 'On Hold' ? 1 : 0;
-      return aHold - bHold;
+      let aVal: string | number = '';
+      let bVal: string | number = '';
+      switch (sortKey) {
+        case 'display_id': aVal = a.display_id; bVal = b.display_id; break;
+        case 'name': aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); break;
+        case 'eg_subtype': aVal = a.eg_subtype || ''; bVal = b.eg_subtype || ''; break;
+        case 'primary_sci': aVal = (memberMap[a.primary_sci_id || ''] || '').toLowerCase(); bVal = (memberMap[b.primary_sci_id || ''] || '').toLowerCase(); break;
+        case 'status': aVal = a.status; bVal = b.status; break;
+        case 'go_live_wave': aVal = a.go_live_wave || ''; bVal = b.go_live_wave || ''; break;
+        case 'priority': aVal = a.priority || ''; bVal = b.priority || ''; break;
+        case 'tasks': {
+          const aTasks = tasksByInitiative[a.id]?.filter(t => OPEN_TASK_STATUSES.has(t.status)).length || 0;
+          const bTasks = tasksByInitiative[b.id]?.filter(t => OPEN_TASK_STATUSES.has(t.status)).length || 0;
+          aVal = aTasks; bVal = bTasks; break;
+        }
+      }
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+      return 0;
     });
     return items;
-  }, [allEG, waveFilter, venueFilter, roleFilter, moduleFilter, sciFilter, priorityFilter, search, tasks]);
-
-  // Task map
-  const tasksByInitiative = useMemo(() => {
-    const map: Record<string, Task[]> = {};
-    for (const t of tasks) {
-      if (!map[t.initiative_id]) map[t.initiative_id] = [];
-      map[t.initiative_id].push(t);
-    }
-    return map;
-  }, [tasks]);
+  }, [allEG, waveFilter, venueFilter, roleFilter, moduleFilter, sciFilter, priorityFilter, search, tasks, sortKey, sortDir, memberMap, tasksByInitiative]);
 
   // Name lookups
   const analystMap = useMemo(() => {
@@ -113,15 +142,6 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
     analysts.forEach((a) => { map[a.id] = a.name; });
     return map;
   }, [analysts]);
-
-  // SCI names (fetch all team members for this)
-  const [allMembers, setAllMembers] = useState<TeamMember[]>([]);
-  useEffect(() => { fetchTeamMembers().then(setAllMembers); }, []);
-  const memberMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    allMembers.forEach(m => { map[m.id] = m.name; });
-    return map;
-  }, [allMembers]);
 
   // Stats
   const totalTasks = egInitiatives.reduce((sum, i) => sum + (tasksByInitiative[i.id]?.length || 0), 0);
@@ -139,6 +159,15 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return null;
+    return sortDir === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />;
   };
 
   if (loading) {
@@ -218,13 +247,13 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
       <div className="grid px-4 py-1.5 border-b text-xs font-medium uppercase tracking-wider"
         style={{ borderColor: 'var(--border-default)', color: 'var(--text-muted)', gridTemplateColumns: '28px 72px 1fr 110px 130px 130px 120px 60px 50px' }}>
         <div />
-        <div>ID</div>
-        <div>Initiative</div>
-        <div>Type</div>
-        <div>Primary SCI</div>
-        <div>Status</div>
-        <div>Wave</div>
-        <div className="text-center">Tasks</div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('display_id')}>ID <SortIcon col="display_id" /></div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('name')}>Initiative <SortIcon col="name" /></div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('eg_subtype')}>Type <SortIcon col="eg_subtype" /></div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('primary_sci')}>Primary SCI <SortIcon col="primary_sci" /></div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('status')}>Status <SortIcon col="status" /></div>
+        <div className="cursor-pointer flex items-center gap-1" onClick={() => handleSort('go_live_wave')}>Wave <SortIcon col="go_live_wave" /></div>
+        <div className="cursor-pointer flex items-center gap-1 justify-center" onClick={() => handleSort('tasks')}>Tasks <SortIcon col="tasks" /></div>
         <div />
       </div>
 
