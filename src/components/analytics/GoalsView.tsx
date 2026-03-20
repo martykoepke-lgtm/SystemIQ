@@ -1,19 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Loader2, Plus, ChevronDown, ChevronRight, User, Calendar, Link2, TrendingUp, X, Search } from 'lucide-react';
-import { fetchInitiatives } from '../../lib/queries';
-import { supabase, DEFAULT_ORG_ID } from '../../lib/supabase';
-import type { Initiative } from '../../lib/supabase';
-
-interface Goal {
-  id: string;
-  title: string;
-  description: string;
-  level: 'organization' | 'team' | 'individual';
-  owner_name: string;
-  target_date: string | null;
-  status: 'active' | 'completed' | 'paused';
-  linked_initiative_ids: string[];
-}
+import { fetchInitiatives, fetchGoals, fetchInitiativesForGoal } from '../../lib/queries';
+import { createGoal as createGoalMut, deleteGoal as deleteGoalMut, linkInitiativeToGoal, unlinkInitiativeFromGoal } from '../../lib/mutations';
+import type { Initiative, Goal } from '../../lib/supabase';
 
 type Level = 'organization' | 'team' | 'individual';
 
@@ -31,22 +20,23 @@ export default function GoalsView() {
     loadData();
   }, []);
 
+  // Goal-to-initiative links (loaded from junction table)
+  const [goalLinks, setGoalLinks] = useState<Record<string, string[]>>({}); // goalId → initIds[]
+
   async function loadData() {
     setLoading(true);
-    const [inits] = await Promise.all([fetchInitiatives()]);
+    const [inits, dbGoals] = await Promise.all([fetchInitiatives(), fetchGoals()]);
     setInitiatives(inits);
+    setGoals(dbGoals);
 
-    // Load goals from local storage for now (can be moved to Supabase table later)
-    const stored = localStorage.getItem('systemiq_goals');
-    if (stored) {
-      try { setGoals(JSON.parse(stored)); } catch { /* ignore */ }
+    // Load links for each goal
+    const links: Record<string, string[]> = {};
+    for (const g of dbGoals) {
+      const initIds = await fetchInitiativesForGoal(g.id);
+      links[g.id] = initIds;
     }
+    setGoalLinks(links);
     setLoading(false);
-  }
-
-  function saveGoals(updated: Goal[]) {
-    setGoals(updated);
-    localStorage.setItem('systemiq_goals', JSON.stringify(updated));
   }
 
   const filtered = useMemo(() => goals.filter(g => g.level === activeLevel), [goals, activeLevel]);
@@ -57,10 +47,13 @@ export default function GoalsView() {
     return next;
   });
 
+  const getLinkedIds = (goalId: string): string[] => goalLinks[goalId] || [];
+
   const getProgress = (goal: Goal): number => {
-    if (goal.linked_initiative_ids.length === 0) return 0;
+    const ids = getLinkedIds(goal.id);
+    if (ids.length === 0) return 0;
     let total = 0;
-    for (const id of goal.linked_initiative_ids) {
+    for (const id of ids) {
       const init = initiatives.find(i => i.id === id);
       if (!init) continue;
       if (init.completion_percentage) { total += init.completion_percentage; continue; }
@@ -71,7 +64,7 @@ export default function GoalsView() {
         default: total += 0;
       }
     }
-    return Math.round(total / goal.linked_initiative_ids.length);
+    return Math.round(total / ids.length);
   };
 
   const getProgressColor = (pct: number): string => {
@@ -81,38 +74,54 @@ export default function GoalsView() {
     return 'var(--border-default)';
   };
 
-  const addGoal = (goal: Omit<Goal, 'id' | 'linked_initiative_ids' | 'status'>) => {
-    const newGoal: Goal = {
-      ...goal,
-      id: crypto.randomUUID(),
-      linked_initiative_ids: [],
-      status: 'active',
-    };
-    saveGoals([...goals, newGoal]);
-    setAddingForLevel(null);
+  const addGoal = async (input: { title: string; description: string; level: Level; owner_name: string; target_date: string | null }) => {
+    try {
+      await createGoalMut({ ...input, target_date: input.target_date || undefined });
+      await loadData();
+      setAddingForLevel(null);
+    } catch (err) {
+      console.error('Create goal error:', err);
+    }
   };
 
-  const linkInitiative = (goalId: string, initId: string) => {
-    const updated = goals.map(g => {
-      if (g.id !== goalId) return g;
-      if (g.linked_initiative_ids.includes(initId)) return g;
-      return { ...g, linked_initiative_ids: [...g.linked_initiative_ids, initId] };
-    });
-    saveGoals(updated);
+  const handleLinkInitiative = async (goalId: string, initId: string) => {
+    try {
+      await linkInitiativeToGoal(initId, goalId);
+      setGoalLinks(prev => ({
+        ...prev,
+        [goalId]: [...(prev[goalId] || []), initId],
+      }));
+    } catch (err) {
+      console.error('Link initiative error:', err);
+    }
   };
 
-  const unlinkInitiative = (goalId: string, initId: string) => {
-    const updated = goals.map(g => {
-      if (g.id !== goalId) return g;
-      return { ...g, linked_initiative_ids: g.linked_initiative_ids.filter(id => id !== initId) };
-    });
-    saveGoals(updated);
+  const handleUnlinkInitiative = async (goalId: string, initId: string) => {
+    try {
+      await unlinkInitiativeFromGoal(initId, goalId);
+      setGoalLinks(prev => ({
+        ...prev,
+        [goalId]: (prev[goalId] || []).filter(id => id !== initId),
+      }));
+    } catch (err) {
+      console.error('Unlink initiative error:', err);
+    }
   };
 
-  const deleteGoal = (goalId: string) => {
+  const handleDeleteGoal = async (goalId: string) => {
     if (!confirm('Delete this goal?')) return;
-    saveGoals(goals.filter(g => g.id !== goalId));
+    try {
+      await deleteGoalMut(goalId);
+      setGoals(prev => prev.filter(g => g.id !== goalId));
+    } catch (err) {
+      console.error('Delete goal error:', err);
+    }
   };
+
+  // Legacy compat — keep old function references for JSX that uses them
+  const linkInitiative = handleLinkInitiative;
+  const unlinkInitiative = handleUnlinkInitiative;
+
 
   const levelCounts = {
     organization: goals.filter(g => g.level === 'organization').length,
@@ -128,7 +137,7 @@ export default function GoalsView() {
       <div className="flex items-center gap-6 text-xs" style={{ color: 'var(--text-muted)' }}>
         <span>{goals.length} total goals</span>
         <span>{goals.filter(g => g.status === 'active').length} active</span>
-        <span>{goals.reduce((s, g) => s + g.linked_initiative_ids.length, 0)} linked initiatives</span>
+        <span>{goals.reduce((s, g) => s + getLinkedIds(g.id).length, 0)} linked initiatives</span>
       </div>
 
       {/* Level Tabs */}
@@ -176,7 +185,7 @@ export default function GoalsView() {
           const isExpanded = expanded.has(goal.id);
           const progress = getProgress(goal);
           const progressColor = getProgressColor(progress);
-          const linkedInits = goal.linked_initiative_ids.map(id => initiatives.find(i => i.id === id)).filter(Boolean) as Initiative[];
+          const linkedInits = getLinkedIds(goal.id).map(id => initiatives.find(i => i.id === id)).filter(Boolean) as Initiative[];
 
           return (
             <div key={goal.id} className="rounded-lg overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-default)' }}>
@@ -198,13 +207,13 @@ export default function GoalsView() {
                         </span>
                       )}
                       <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        <Link2 size={12} /> {goal.linked_initiative_ids.length} linked
+                        <Link2 size={12} /> {getLinkedIds(goal.id).length} linked
                       </span>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-sm font-bold font-mono" style={{ color: progressColor }}>{progress}%</div>
-                    <button onClick={() => deleteGoal(goal.id)} className="text-xs mt-1" style={{ color: 'var(--color-danger)' }}>Delete</button>
+                    <button onClick={() => handleDeleteGoal(goal.id)} className="text-xs mt-1" style={{ color: 'var(--color-danger)' }}>Delete</button>
                   </div>
                 </div>
 
@@ -256,7 +265,7 @@ export default function GoalsView() {
                       </div>
                       <div className="space-y-1 max-h-32 overflow-y-auto">
                         {initiatives
-                          .filter(i => !goal.linked_initiative_ids.includes(i.id))
+                          .filter(i => !getLinkedIds(goal.id).includes(i.id))
                           .filter(i => !linkSearch || i.name.toLowerCase().includes(linkSearch.toLowerCase()) || i.display_id.toLowerCase().includes(linkSearch.toLowerCase()))
                           .slice(0, 5)
                           .map(init => (

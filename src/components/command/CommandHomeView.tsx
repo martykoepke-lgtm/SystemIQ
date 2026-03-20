@@ -7,8 +7,6 @@ import {
   STATUS_COLORS,
   PRIORITY_COLORS,
   TASK_STATUS_COLORS,
-  EG_SUBTYPES,
-  EG_SUBTYPE_COLORS,
 } from '../../lib/constants';
 
 type InitiativeWithCounts = Initiative & { task_count: number; open_task_count: number };

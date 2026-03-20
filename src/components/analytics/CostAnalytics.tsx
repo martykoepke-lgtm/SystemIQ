@@ -6,7 +6,7 @@ import { fetchInitiatives, fetchTeamMembers } from '../../lib/queries';
 import type { Initiative, TeamMember } from '../../lib/supabase';
 import { TYPE_COLORS } from '../../lib/constants';
 
-const DEFAULT_HOURLY_RATE = 75; // Default rate until hourly_rate is added to team_members
+const DEFAULT_HOURLY_RATE = 75; // Fallback if team member has no rate set
 
 interface CostEntry {
   initiativeId: string;
@@ -60,13 +60,23 @@ export default function CostAnalytics() {
     if (staffFilter) query = query.eq('team_member_id', staffFilter);
 
     const { data } = await query;
-    const entries: CostEntry[] = (data || []).map(d => ({
-      initiativeId: d.initiative_id,
-      memberId: d.team_member_id,
-      hours: Number(d.hours_spent) || 0,
-      cost: (Number(d.hours_spent) || 0) * DEFAULT_HOURLY_RATE,
-      week: d.week_start_date,
-    }));
+    // Build rate lookup from members (use actual hourly_rate if available)
+    const rateMap = new Map<string, number>();
+    for (const m of members) {
+      rateMap.set(m.id, m.hourly_rate ?? DEFAULT_HOURLY_RATE);
+    }
+
+    const entries: CostEntry[] = (data || []).map(d => {
+      const hours = Number(d.hours_spent) || 0;
+      const rate = rateMap.get(d.team_member_id) ?? DEFAULT_HOURLY_RATE;
+      return {
+        initiativeId: d.initiative_id,
+        memberId: d.team_member_id,
+        hours,
+        cost: hours * rate,
+        week: d.week_start_date,
+      };
+    });
     setCostEntries(entries);
     setLoading(false);
   }
@@ -185,7 +195,7 @@ export default function CostAnalytics() {
         </div>
         <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
           <Info size={12} />
-          Using ${DEFAULT_HOURLY_RATE}/hr default rate
+          Rates from team profiles (default: ${DEFAULT_HOURLY_RATE}/hr)
         </div>
       </div>
 
@@ -210,7 +220,7 @@ export default function CostAnalytics() {
                     <Pie data={byType} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={55} innerRadius={25}>
                       {byType.map(d => <Cell key={d.name} fill={TYPE_COLORS[d.name] || '#6b7280'} />)}
                     </Pie>
-                    <Tooltip {...tooltipStyle} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                    <Tooltip {...tooltipStyle} formatter={(v) => `$${Number(v || 0).toLocaleString()}`} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -235,7 +245,7 @@ export default function CostAnalytics() {
               <BarChart data={byPhase} layout="vertical" margin={{ left: 5, right: 5 }}>
                 <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: 'var(--text-body)' }} />
-                <Tooltip {...tooltipStyle} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                <Tooltip {...tooltipStyle} formatter={(v) => `$${Number(v || 0).toLocaleString()}`} />
                 <Bar dataKey="value" fill="var(--primary-brand-color)" radius={[0, 4, 4, 0]} maxBarSize={16} />
               </BarChart>
             </ResponsiveContainer>
@@ -251,7 +261,7 @@ export default function CostAnalytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" />
                 <XAxis dataKey="week" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip {...tooltipStyle} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                <Tooltip {...tooltipStyle} formatter={(v) => `$${Number(v || 0).toLocaleString()}`} />
                 <Area type="monotone" dataKey="cost" fill="var(--primary-brand-color)" fillOpacity={0.15} stroke="var(--primary-brand-color)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>

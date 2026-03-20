@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Loader2, Users } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { Loader2 } from 'lucide-react';
 import { fetchTeamMembers } from '../../lib/queries';
 import { calculateTeamCapacity, type MemberCapacity } from '../../lib/workloadCalculator';
 import type { TeamMember } from '../../lib/supabase';

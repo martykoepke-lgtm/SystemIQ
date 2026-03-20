@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Loader2, User, ChevronRight } from 'lucide-react';
 import { fetchAllTasks, fetchTeamMembers, fetchInitiatives } from '../../lib/queries';
 import type { Task, TeamMember, Initiative } from '../../lib/supabase';
-import { TASK_STATUS_COLORS, PRIORITY_COLORS, OPEN_TASK_STATUSES } from '../../lib/constants';
+import { TASK_STATUS_COLORS, PRIORITY_COLORS } from '../../lib/constants';
 
 interface AnalystViewProps {
   onOpenTask: (taskId: string) => void;
@@ -11,7 +11,7 @@ interface AnalystViewProps {
 
 type GroupBy = 'initiative' | 'module' | 'status';
 
-export default function AnalystView({ onOpenTask, onOpenInitiative }: AnalystViewProps) {
+export default function AnalystView({ onOpenTask, onOpenInitiative: _onOpenInitiative }: AnalystViewProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [analysts, setAnalysts] = useState<TeamMember[]>([]);
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);

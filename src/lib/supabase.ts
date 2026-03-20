@@ -28,6 +28,7 @@ export interface TeamMember {
   role: 'sci' | 'mi' | 'analyst' | 'sci_manager' | 'sci_director' | 'mi_manager' | 'mi_director' | 'analyst_manager' | 'analyst_director';
   manager_id: string | null;
   title: string | null;
+  hourly_rate: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -76,6 +77,11 @@ export interface Initiative {
   updated_at: string;
 }
 
+export interface StakeholderWithRole extends Stakeholder {
+  pivot_id: string;
+  role: string | null;
+}
+
 export interface InitiativeWithDetails extends Initiative {
   primary_sci?: TeamMember | null;
   secondary_sci?: TeamMember | null;
@@ -85,6 +91,8 @@ export interface InitiativeWithDetails extends Initiative {
   notes?: Note[];
   action_items?: ActionItem[];
   documents?: Document[];
+  metrics?: InitiativeMetric[];
+  stakeholders?: StakeholderWithRole[];
 }
 
 export interface Task {
@@ -270,4 +278,43 @@ export interface UserPreference {
   team_member_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface InitiativeMetric {
+  id: string;
+  organization_id: string;
+  initiative_id: string;
+  metric_name: string;
+  unit: string;
+  baseline_value: number | null;
+  baseline_date: string | null;
+  baseline_timeframe: string | null;
+  target_value: number | null;
+  result_value: number | null;
+  result_date: string | null;
+  result_timeframe: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Goal {
+  id: string;
+  organization_id: string;
+  title: string;
+  description: string | null;
+  level: 'organization' | 'team' | 'individual';
+  owner_name: string;
+  team_member_id: string | null;
+  target_date: string | null;
+  status: 'active' | 'completed' | 'paused';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InitiativeGoal {
+  id: string;
+  initiative_id: string;
+  goal_id: string;
+  created_at: string;
 }

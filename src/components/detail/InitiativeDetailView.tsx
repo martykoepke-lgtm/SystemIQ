@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Loader2, Pencil, Trash2 } from 'lucide-react';
-import { fetchInitiativeWithDetails } from '../../lib/queries';
-import { deleteInitiative } from '../../lib/mutations';
-import type { InitiativeWithDetails } from '../../lib/supabase';
+import { ArrowLeft, Loader2, Pencil, Trash2, X, Plus } from 'lucide-react';
+import { fetchInitiativeWithDetails, fetchInitiativeMetrics } from '../../lib/queries';
+import { deleteInitiative, removeStakeholderFromInitiative } from '../../lib/mutations';
+import type { InitiativeWithDetails, InitiativeMetric } from '../../lib/supabase';
 import { TYPE_COLORS, PRIORITY_COLORS, STATUS_COLORS } from '../../lib/constants';
 import TasksTab from './TasksTab';
 import NotesTab from './NotesTab';
 import ActionItemsTab from './ActionItemsTab';
 import DocumentsTab from './DocumentsTab';
+import GoalsSection from './GoalsSection';
 import MetricsTab from './MetricsTab';
 import GovernanceTab from './GovernanceTab';
 import EffortLogModal from '../modals/EffortLogModal';
+import MetricModal from '../modals/MetricModal';
+import StakeholderModal from '../modals/StakeholderModal';
 
 interface InitiativeDetailViewProps {
   initiativeId: string;
@@ -35,6 +38,10 @@ export default function InitiativeDetailView({
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('tasks');
   const [effortLogOpen, setEffortLogOpen] = useState(false);
+  const [metrics, setMetrics] = useState<InitiativeMetric[]>([]);
+  const [metricModalOpen, setMetricModalOpen] = useState(false);
+  const [editingMetric, setEditingMetric] = useState<InitiativeMetric | null>(null);
+  const [stakeholderModalOpen, setStakeholderModalOpen] = useState(false);
 
   useEffect(() => {
     loadInitiative();
@@ -42,9 +49,27 @@ export default function InitiativeDetailView({
 
   async function loadInitiative() {
     setLoading(true);
-    const data = await fetchInitiativeWithDetails(initiativeId);
+    const [data, metricsData] = await Promise.all([
+      fetchInitiativeWithDetails(initiativeId),
+      fetchInitiativeMetrics(initiativeId),
+    ]);
     setInitiative(data);
+    setMetrics(metricsData);
     setLoading(false);
+  }
+
+  async function refreshMetrics() {
+    const metricsData = await fetchInitiativeMetrics(initiativeId);
+    setMetrics(metricsData);
+  }
+
+  async function handleRemoveStakeholder(pivotId: string) {
+    try {
+      await removeStakeholderFromInitiative(pivotId);
+      loadInitiative();
+    } catch (err) {
+      console.error('Error removing stakeholder:', err);
+    }
   }
 
   async function handleDelete() {
@@ -179,6 +204,10 @@ export default function InitiativeDetailView({
             <MetricsTab
               initiative={initiative}
               onLogEffort={() => setEffortLogOpen(true)}
+              metrics={metrics}
+              onAddMetric={() => { setEditingMetric(null); setMetricModalOpen(true); }}
+              onEditMetric={(m) => { setEditingMetric(m); setMetricModalOpen(true); }}
+              onMetricsChanged={refreshMetrics}
             />
           )}
           {activeTab === 'governance' && <GovernanceTab initiativeId={initiativeId} />}
@@ -203,6 +232,63 @@ export default function InitiativeDetailView({
         <PropRow label="Venues" value={initiative.venues?.join(', ')} />
         <PropRow label="Roles Impacted" value={initiative.roles_impacted?.join(', ')} />
         <PropRow label="Specialty" value={initiative.specialty_service_line?.join(', ')} />
+        {/* Stakeholders Section */}
+        <div className="border-t pt-3 mt-3" style={{ borderColor: 'var(--border-default)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+              Stakeholders
+            </span>
+            <button
+              onClick={() => setStakeholderModalOpen(true)}
+              className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded transition-colors"
+              style={{ color: 'var(--primary-brand-color)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <Plus size={12} /> ADD
+            </button>
+          </div>
+
+          {(!initiative.stakeholders || initiative.stakeholders.length === 0) ? (
+            <p className="text-xs py-2" style={{ color: 'var(--text-muted)' }}>No stakeholders assigned</p>
+          ) : (
+            <div className="space-y-2">
+              {initiative.stakeholders.map((s) => (
+                <div
+                  key={s.pivot_id}
+                  className="flex items-center gap-2.5 py-2 px-2 rounded-lg border"
+                  style={{ borderColor: 'var(--border-default)' }}
+                >
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                    style={{ backgroundColor: 'var(--primary-brand-color)' }}
+                  >
+                    {s.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate" style={{ color: 'var(--text-heading)' }}>
+                      {s.name}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                      {[s.role, s.department].filter(Boolean).join(' \u00B7 ') || s.title || '\u2014'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveStakeholder(s.pivot_id)}
+                    className="shrink-0 p-1 rounded transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    title="Remove stakeholder"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {initiative.type === 'Epic Gold' && (
           <>
             <div className="border-t pt-3 mt-3" style={{ borderColor: 'var(--border-default)' }}>
@@ -227,6 +313,24 @@ export default function InitiativeDetailView({
           currentEffortSize={initiative.work_effort}
         />
       )}
+
+      {/* Metric Modal */}
+      <MetricModal
+        isOpen={metricModalOpen}
+        onClose={() => { setMetricModalOpen(false); setEditingMetric(null); }}
+        onSaved={() => { setMetricModalOpen(false); setEditingMetric(null); refreshMetrics(); }}
+        initiativeId={initiativeId}
+        editingMetric={editingMetric}
+      />
+
+      {/* Stakeholder Modal */}
+      <StakeholderModal
+        isOpen={stakeholderModalOpen}
+        onClose={() => setStakeholderModalOpen(false)}
+        onSaved={() => { setStakeholderModalOpen(false); loadInitiative(); }}
+        initiativeId={initiativeId}
+        existingStakeholderIds={initiative.stakeholders?.map((s) => s.id) || []}
+      />
     </div>
   );
 }
@@ -261,15 +365,22 @@ function DetailsPanel({ initiative }: { initiative: InitiativeWithDetails }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4">
-      {fields.map((f) => (
-        <div key={f.label}>
-          <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>{f.label}</div>
-          <div className="text-sm" style={{ color: f.value ? 'var(--text-heading)' : 'var(--text-muted)' }}>
-            {f.value || '—'}
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        {fields.map((f) => (
+          <div key={f.label}>
+            <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>{f.label}</div>
+            <div className="text-sm" style={{ color: f.value ? 'var(--text-heading)' : 'var(--text-muted)' }}>
+              {f.value || '—'}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+
+      {/* Goals Section */}
+      <div className="border-t pt-4" style={{ borderColor: 'var(--border-default)' }}>
+        <GoalsSection initiativeId={initiative.id} />
+      </div>
     </div>
   );
 }

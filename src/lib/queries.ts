@@ -13,6 +13,8 @@ import type {
   EffortLog,
   GovernanceRecord,
   UserPreference,
+  InitiativeMetric,
+  Stakeholder,
 } from './supabase';
 import { OPEN_TASK_STATUSES } from './constants';
 
@@ -46,17 +48,24 @@ export async function fetchInitiativeWithDetails(id: string): Promise<Initiative
   }
 
   // Fetch related data in parallel
-  const [tasksRes, notesRes, actionItemsRes, docsRes, primarySciRes, secondarySciRes] = await Promise.all([
+  const [tasksRes, notesRes, actionItemsRes, docsRes, primarySciRes, secondarySciRes, stakeholdersRes] = await Promise.all([
     supabase.from('tasks').select('*').eq('initiative_id', id).order('created_at', { ascending: false }),
     supabase.from('notes').select('*').eq('initiative_id', id).is('task_id', null).order('created_at', { ascending: false }),
     supabase.from('action_items').select('*').eq('initiative_id', id).is('task_id', null).order('created_at', { ascending: false }),
     supabase.from('documents').select('*').eq('initiative_id', id).is('task_id', null).order('created_at', { ascending: false }),
     initiative.primary_sci_id ? supabase.from('team_members').select('*').eq('id', initiative.primary_sci_id).single() : Promise.resolve({ data: null }),
     initiative.secondary_sci_id ? supabase.from('team_members').select('*').eq('id', initiative.secondary_sci_id).single() : Promise.resolve({ data: null }),
+    supabase.from('initiative_stakeholders').select('id, role, stakeholder_id, stakeholders(*)').eq('initiative_id', id).order('created_at', { ascending: true }),
   ]);
 
   const tasks = tasksRes.data || [];
   const openTaskCount = tasks.filter((t: Task) => OPEN_TASK_STATUSES.has(t.status)).length;
+
+  const stakeholders = (stakeholdersRes.data || []).map((row: any) => ({
+    ...row.stakeholders,
+    pivot_id: row.id,
+    role: row.role,
+  }));
 
   return {
     ...initiative,
@@ -68,6 +77,7 @@ export async function fetchInitiativeWithDetails(id: string): Promise<Initiative
     documents: docsRes.data || [],
     primary_sci: primarySciRes.data as TeamMember | null,
     secondary_sci: secondarySciRes.data as TeamMember | null,
+    stakeholders,
   };
 }
 
@@ -314,5 +324,100 @@ export async function fetchEffortLogsForInitiative(initiativeId: string): Promis
     .select('*')
     .eq('initiative_id', initiativeId)
     .order('week_start_date', { ascending: false });
+  return data || [];
+}
+
+// ─── Initiative outcome metrics ───
+
+export async function fetchInitiativeMetrics(initiativeId: string): Promise<InitiativeMetric[]> {
+  const { data, error } = await supabase
+    .from('initiative_metrics')
+    .select('*')
+    .eq('initiative_id', initiativeId)
+    .order('created_at', { ascending: true });
+  if (error) console.warn('fetchInitiativeMetrics error:', error);
+  return data || [];
+}
+
+// ─── Stakeholders ───
+
+export interface StakeholderWithRole extends Stakeholder {
+  pivot_id: string;
+  role: string | null;
+}
+
+export async function fetchStakeholdersForInitiative(initiativeId: string): Promise<StakeholderWithRole[]> {
+  const { data, error } = await supabase
+    .from('initiative_stakeholders')
+    .select('id, role, stakeholder_id, stakeholders(*)')
+    .eq('initiative_id', initiativeId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.warn('fetchStakeholdersForInitiative error:', error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    ...row.stakeholders,
+    pivot_id: row.id,
+    role: row.role,
+  }));
+}
+
+export async function fetchAllStakeholders(): Promise<Stakeholder[]> {
+  const { data, error } = await supabase
+    .from('stakeholders')
+    .select('*')
+    .eq('organization_id', DEFAULT_ORG_ID)
+    .order('name');
+
+  if (error) {
+    console.warn('fetchAllStakeholders error:', error);
+    return [];
+  }
+  return data || [];
+}
+
+// ─── Goals ───
+
+import type { Goal, InitiativeGoal } from './supabase';
+
+export async function fetchGoals(): Promise<Goal[]> {
+  const { data, error } = await supabase
+    .from('goals')
+    .select('*')
+    .eq('organization_id', DEFAULT_ORG_ID)
+    .order('level', { ascending: true });
+  if (error) { console.warn('fetchGoals error:', error); return []; }
+  return data || [];
+}
+
+export async function fetchGoalsForInitiative(initiativeId: string): Promise<(InitiativeGoal & { goal: Goal })[]> {
+  const { data, error } = await supabase
+    .from('initiative_goals')
+    .select('*, goal:goals(*)')
+    .eq('initiative_id', initiativeId);
+  if (error) { console.warn('fetchGoalsForInitiative error:', error); return []; }
+  return (data || []) as any;
+}
+
+export async function fetchInitiativesForGoal(goalId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('initiative_goals')
+    .select('initiative_id')
+    .eq('goal_id', goalId);
+  return (data || []).map(d => d.initiative_id);
+}
+
+export async function fetchGoalsForMember(memberId: string): Promise<Goal[]> {
+  // Return org goals + team goals + individual goals owned by this member
+  const { data, error } = await supabase
+    .from('goals')
+    .select('*')
+    .eq('organization_id', DEFAULT_ORG_ID)
+    .or(`level.in.(organization,team),team_member_id.eq.${memberId}`)
+    .order('level', { ascending: true });
+  if (error) { console.warn('fetchGoalsForMember error:', error); return []; }
   return data || [];
 }

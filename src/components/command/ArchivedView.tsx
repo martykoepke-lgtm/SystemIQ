@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Loader2, Archive, ChevronRight } from 'lucide-react';
+import { Loader2, Archive } from 'lucide-react';
 import { fetchInitiativesWithCounts } from '../../lib/queries';
 import type { Initiative } from '../../lib/supabase';
-import { TYPE_COLORS, STATUS_COLORS, PRIORITY_COLORS } from '../../lib/constants';
+import { TYPE_COLORS, STATUS_COLORS } from '../../lib/constants';
 
 type InitiativeWithCounts = Initiative & { task_count: number; open_task_count: number };
 

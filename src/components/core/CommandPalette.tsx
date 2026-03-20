@@ -14,7 +14,6 @@ import {
   Shield,
 } from 'lucide-react';
 import type { MainView } from './TopBar';
-import type { CommandSubView } from './Sidebar';
 
 interface CommandPaletteProps {
   isOpen: boolean;

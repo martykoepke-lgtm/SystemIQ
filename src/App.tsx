@@ -119,12 +119,10 @@ function AppContent() {
   // ─── Navigation handler ───
   const navigate = useCallback((view: MainView, sub?: string) => {
     setActiveView(view);
-    if (sub) {
-      if (view === 'command') setCommandSub(sub as CommandSubView);
-      if (view === 'workforce') setWorkforceSub(sub as WorkforceSubView);
-      if (view === 'analytics') setAnalyticsSub(sub as AnalyticsSubView);
-      if (view === 'admin') setAdminSub(sub as AdminSubView);
-    }
+    if (view === 'command') setCommandSub((sub as CommandSubView) || 'home');
+    if (view === 'workforce') setWorkforceSub((sub as WorkforceSubView) || 'workdash');
+    if (view === 'analytics') setAnalyticsSub((sub as AnalyticsSubView) || 'portfolio');
+    if (view === 'admin') setAdminSub((sub as AdminSubView) || 'team');
   }, []);
 
   // ─── Sub-tab bars for non-sidebar views ───

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, Cell,
 } from 'recharts';
 import { fetchEffortByWeek, fetchEffortByWorkType, fetchEffortByPhase, fetchTopEffortInitiatives } from '../../lib/analyticsEngine';
 import { fetchSCIs } from '../../lib/queries';

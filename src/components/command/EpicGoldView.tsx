@@ -1,14 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Loader2, Zap, ChevronDown, ChevronRight, User, X } from 'lucide-react';
+import { Plus, Loader2, Zap, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { fetchInitiativesWithCounts, fetchAllTasks, fetchTeamMembers } from '../../lib/queries';
 import type { Initiative, Task, TeamMember } from '../../lib/supabase';
 import {
-  INITIATIVE_STATUSES,
   STATUS_COLORS,
   TASK_STATUS_COLORS,
   PRIORITY_COLORS,
   OPEN_TASK_STATUSES,
-  ACTIVE_INITIATIVE_STATUSES,
   EG_SUBTYPE_COLORS,
 } from '../../lib/constants';
 
@@ -72,12 +70,6 @@ export default function EpicGoldView({ onOpenInitiative, onOpenTask, onCreateIni
     tasks.forEach(t => { if (t.module) s.add(t.module); });
     return [...s].sort();
   }, [tasks]);
-  const sciOptions = useMemo(() => {
-    const ids = new Set<string>();
-    allEG.forEach(i => { if (i.primary_sci_id) ids.add(i.primary_sci_id); });
-    return analysts.length ? [] : []; // we'll use the full member list below
-  }, [allEG]);
-
   const ARCHIVED_STATUSES = new Set(['Completed', 'Dismissed', 'Deferred']);
 
   // Filter to Epic Gold — exclude archived, sort On Hold to bottom

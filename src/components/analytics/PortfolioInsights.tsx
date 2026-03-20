@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Loader2, ChevronDown, ChevronRight, TrendingUp, BarChart3 } from 'lucide-react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from 'recharts';
+import { Loader2, TrendingUp, BarChart3, Activity } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import { fetchInitiatives, fetchTeamMembers, fetchAllTasks } from '../../lib/queries';
-import { fetchEffortByWeek, fetchEffortByWorkType } from '../../lib/analyticsEngine';
+import { fetchEffortByWeek, fetchEffortByWorkType, analyzeAllTrends, analyzeAllForecasts, type TrendResult, type ForecastResult, type ConfidenceLevel } from '../../lib/analyticsEngine';
 import { supabase, DEFAULT_ORG_ID } from '../../lib/supabase';
 import type { Initiative, TeamMember, Task } from '../../lib/supabase';
-import { TYPE_COLORS, STATUS_COLORS, ACTIVE_INITIATIVE_STATUSES, OPEN_TASK_STATUSES } from '../../lib/constants';
+import { TYPE_COLORS, ACTIVE_INITIATIVE_STATUSES, OPEN_TASK_STATUSES } from '../../lib/constants';
 
 export default function PortfolioInsights() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
@@ -17,7 +17,11 @@ export default function PortfolioInsights() {
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('All');
   const [memberFilter, setMemberFilter] = useState('');
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
+  const [_expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
+  const [trendResults, setTrendResults] = useState<TrendResult[]>([]);
+  const [forecastResults, setForecastResults] = useState<ForecastResult[]>([]);
+  const [showAllTrends, setShowAllTrends] = useState(false);
+  const [showAllForecasts, setShowAllForecasts] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -27,14 +31,17 @@ export default function PortfolioInsights() {
       fetchEffortByWeek(16),
       fetchEffortByWorkType(),
       loadEffortByInitiative(),
-    ]).then(([i, t, m, w, bt, ebi]) => {
+      analyzeAllTrends(50),
+      analyzeAllForecasts(30),
+    ]).then(([i, t, m, w, bt, ebi, trends, forecasts]) => {
       setInitiatives(i);
       setTasks(t);
       setMembers(m);
       setWeeklyEffort(w);
       setByType(bt);
       setEffortByInit(ebi);
-      // Auto-expand first 2 types
+      setTrendResults(trends);
+      setForecastResults(forecasts);
       const types = [...new Set(i.map(x => x.type))].slice(0, 2);
       setExpandedTypes(new Set(types));
     }).finally(() => setLoading(false));
@@ -51,12 +58,6 @@ export default function PortfolioInsights() {
     }
     return map;
   }
-
-  const memberMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const mem of members) m.set(mem.id, mem.name);
-    return m;
-  }, [members]);
 
   const taskCountMap = useMemo(() => {
     const m = new Map<string, { total: number; open: number }>();
@@ -77,6 +78,33 @@ export default function PortfolioInsights() {
     return items;
   }, [initiatives, typeFilter, memberFilter]);
 
+  // Filter-aware data: trends, forecasts, and effort by type
+  const filteredIds = useMemo(() => new Set(filtered.map(i => i.id)), [filtered]);
+
+  const filteredTrends = useMemo(() => {
+    if (!memberFilter && typeFilter === 'All') return trendResults;
+    return trendResults.filter(t => filteredIds.has(t.initiativeId));
+  }, [trendResults, filteredIds, memberFilter, typeFilter]);
+
+  const filteredForecasts = useMemo(() => {
+    if (!memberFilter && typeFilter === 'All') return forecastResults;
+    return forecastResults.filter(f => filteredIds.has(f.initiativeId));
+  }, [forecastResults, filteredIds, memberFilter, typeFilter]);
+
+  const filteredByType = useMemo(() => {
+    if (!memberFilter && typeFilter === 'All') return byType;
+    // Recompute hours by type from filtered initiatives
+    const map = new Map<string, { hours: number; count: number }>();
+    for (const init of filtered) {
+      const hours = effortByInit.get(init.id) || 0;
+      if (!map.has(init.type)) map.set(init.type, { hours: 0, count: 0 });
+      const entry = map.get(init.type)!;
+      entry.hours += hours;
+      entry.count++;
+    }
+    return Array.from(map.entries()).map(([type, d]) => ({ type, hours: Math.round(d.hours * 10) / 10, count: d.count })).sort((a, b) => b.hours - a.hours);
+  }, [filtered, byType, effortByInit, memberFilter, typeFilter]);
+
   // Summary stats
   const activeCount = filtered.filter(i => ACTIVE_INITIATIVE_STATUSES.has(i.status)).length;
   const withEffort = filtered.filter(i => effortByInit.has(i.id)).length;
@@ -92,12 +120,6 @@ export default function PortfolioInsights() {
     }
     return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
   }, [filtered]);
-
-  const toggleType = (type: string) => setExpandedTypes(prev => {
-    const next = new Set(prev);
-    if (next.has(type)) next.delete(type); else next.add(type);
-    return next;
-  });
 
   const types = useMemo(() => ['All', ...new Set(initiatives.map(i => i.type))], [initiatives]);
   const scis = members.filter(m => m.role === 'sci' || m.role === 'mi').sort((a, b) => a.name.localeCompare(b.name));
@@ -169,17 +191,17 @@ export default function PortfolioInsights() {
             <BarChart3 size={16} />
             Hours by Work Type
           </div>
-          {byType.length === 0 ? (
+          {filteredByType.length === 0 ? (
             <div className="text-xs text-center py-12" style={{ color: 'var(--text-muted)' }}>No effort data</div>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={byType} layout="vertical" margin={{ left: 10, right: 10 }}>
+              <BarChart data={filteredByType} layout="vertical" margin={{ left: 10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
                 <YAxis type="category" dataKey="type" width={120} tick={{ fontSize: 10, fill: 'var(--text-body)' }} />
                 <Tooltip {...tooltipStyle} />
                 <Bar dataKey="hours" radius={[0, 4, 4, 0]} maxBarSize={18}>
-                  {byType.map(d => <Cell key={d.type} fill={TYPE_COLORS[d.type] || 'var(--primary-brand-color)'} />)}
+                  {filteredByType.map(d => <Cell key={d.type} fill={TYPE_COLORS[d.type] || 'var(--primary-brand-color)'} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -187,75 +209,102 @@ export default function PortfolioInsights() {
         </div>
       </div>
 
-      {/* Collapsible Initiative Sections by Type */}
-      <div className="space-y-3">
-        <div className="text-sm font-semibold" style={{ color: 'var(--text-heading)' }}>Initiatives by Type</div>
-        {groupedByType.map(([type, items]) => {
-          const expanded = expandedTypes.has(type);
-          const typeColor = TYPE_COLORS[type] || '#6b7280';
-          const typeHours = items.reduce((s, i) => s + (effortByInit.get(i.id) || 0), 0);
-          return (
-            <div key={type} className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-default)' }}>
-              <button
-                onClick={() => toggleType(type)}
-                className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
-                style={{ backgroundColor: 'var(--bg-surface)' }}
-              >
-                {expanded ? <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} /> : <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />}
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: typeColor }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-heading)' }}>{type}</span>
-                <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{items.length} initiatives</span>
-                {typeHours > 0 && <span className="text-xs font-mono" style={{ color: typeColor }}>{Math.round(typeHours)}h logged</span>}
-              </button>
-              {expanded && (
-                <div className="border-t" style={{ borderColor: 'var(--border-default)' }}>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr style={{ backgroundColor: 'var(--bg-surface-hover)' }}>
-                        <th className="px-3 py-1.5 text-left text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>ID</th>
-                        <th className="px-3 py-1.5 text-left text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Name</th>
-                        <th className="px-3 py-1.5 text-left text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Status</th>
-                        <th className="px-3 py-1.5 text-left text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>SCI</th>
-                        <th className="px-3 py-1.5 text-right text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Hours</th>
-                        <th className="px-3 py-1.5 text-right text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Tasks</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items
-                        .sort((a, b) => (effortByInit.get(b.id) || 0) - (effortByInit.get(a.id) || 0))
-                        .map(init => {
-                          const tc = taskCountMap.get(init.id);
-                          const hrs = effortByInit.get(init.id) || 0;
-                          return (
-                            <tr key={init.id} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
-                              <td className="px-3 py-2 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{init.display_id}</td>
-                              <td className="px-3 py-2 font-medium" style={{ color: 'var(--text-heading)' }}>{init.name}</td>
-                              <td className="px-3 py-2">
-                                <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ backgroundColor: `${STATUS_COLORS[init.status] || '#6b7280'}20`, color: STATUS_COLORS[init.status] || '#6b7280' }}>
-                                  {init.status}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                                {memberMap.get(init.primary_sci_id || '') || '—'}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs" style={{ color: hrs > 0 ? 'var(--text-heading)' : 'var(--text-muted)' }}>
-                                {hrs > 0 ? `${Math.round(hrs * 10) / 10}h` : '—'}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
-                                {tc ? `${tc.open}/${tc.total}` : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
+      {/* ─── Initiative Effort Trends (3-column mini-chart grid) ─── */}
+      {filteredTrends.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={18} style={{ color: 'var(--text-heading)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--text-heading)' }}>Initiative Effort Trends</span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({filteredTrends.length} with sufficient data)</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {(showAllTrends ? filteredTrends : filteredTrends.slice(0, 6)).map(trend => (
+              <div key={trend.initiativeId} className="rounded-lg p-3" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-default)' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--text-heading)' }}>
+                    {trend.initiativeName}
+                  </span>
+                  <ConfBadge level={trend.confidence} />
                 </div>
-              )}
-            </div>
-          );
-        })}
+                <ResponsiveContainer width="100%" height={100}>
+                  <LineChart data={trend.chartData}>
+                    <XAxis dataKey="name" tick={{ fontSize: 8, fill: 'var(--text-muted)' }} />
+                    <YAxis hide />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 11 }} />
+                    <Line type="monotone" dataKey="hours" stroke={trend.direction === 'increasing' ? '#ef4444' : trend.direction === 'decreasing' ? '#22c55e' : '#6b7280'} strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="trend" stroke={trend.direction === 'increasing' ? '#ef4444' : trend.direction === 'decreasing' ? '#22c55e' : '#6b7280'} strokeWidth={1} strokeDasharray="4 4" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{trend.summary}</p>
+              </div>
+            ))}
+          </div>
+          {filteredTrends.length > 6 && (
+            <button onClick={() => setShowAllTrends(!showAllTrends)} className="text-xs font-medium" style={{ color: 'var(--primary-brand-color)' }}>
+              {showAllTrends ? 'Show Less' : `Show All ${filteredTrends.length} Trends`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ─── Effort Forecasts (2-column chart grid) ─── */}
+      {filteredForecasts.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Activity size={18} style={{ color: 'var(--text-heading)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--text-heading)' }}>Effort Forecasts</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {(showAllForecasts ? filteredForecasts : filteredForecasts.slice(0, 4)).map(fc => (
+              <div key={fc.initiativeId} className="rounded-lg p-3" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-default)' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--text-heading)' }}>
+                    {fc.initiativeName}
+                  </span>
+                  <ConfBadge level={fc.confidence} />
+                </div>
+                <ResponsiveContainer width="100%" height={120}>
+                  <LineChart data={fc.chartData}>
+                    <XAxis dataKey="name" tick={{ fontSize: 8, fill: 'var(--text-muted)' }} />
+                    <YAxis tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 11 }} />
+                    <Line type="monotone" dataKey="actual" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} name="Actual" />
+                    <Line type="monotone" dataKey="forecast" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 2 }} connectNulls={false} name="Forecast" />
+                    <Line type="monotone" dataKey="trend" stroke="#94a3b8" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Trend" />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{fc.summary}</p>
+              </div>
+            ))}
+          </div>
+          {filteredForecasts.length > 4 && (
+            <button onClick={() => setShowAllForecasts(!showAllForecasts)} className="text-xs font-medium" style={{ color: 'var(--primary-brand-color)' }}>
+              {showAllForecasts ? 'Show Less' : `Show All ${filteredForecasts.length} Forecasts`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Data quality note */}
+      <div className="text-xs p-3 rounded-lg" style={{ backgroundColor: 'var(--bg-surface-hover)', color: 'var(--text-muted)' }}>
+        Trends require 4+ weeks of logged effort data. Forecasts use linear regression projected 4 weeks ahead. Confidence levels reflect statistical significance (R² correlation).
       </div>
     </div>
+  );
+}
+
+function ConfBadge({ level }: { level: ConfidenceLevel }) {
+  const colors: Record<string, { bg: string; text: string }> = {
+    strong: { bg: '#22c55e20', text: '#22c55e' },
+    good: { bg: '#3b82f620', text: '#3b82f6' },
+    some: { bg: '#f59e0b20', text: '#f59e0b' },
+    insufficient: { bg: '#6b728020', text: '#6b7280' },
+  };
+  const c = colors[level] || colors.insufficient;
+  return (
+    <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0" style={{ backgroundColor: c.bg, color: c.text }}>
+      {level}
+    </span>
   );
 }
 

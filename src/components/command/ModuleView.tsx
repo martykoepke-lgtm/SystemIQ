@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Loader2, Boxes, ChevronRight, ChevronDown, User } from 'lucide-react';
+import { Loader2, Boxes, ChevronRight, ChevronDown } from 'lucide-react';
 import { fetchAllTasks, fetchTeamMembers, fetchInitiatives } from '../../lib/queries';
 import type { Task, TeamMember, Initiative } from '../../lib/supabase';
-import { TASK_STATUS_COLORS, PRIORITY_COLORS, OPEN_TASK_STATUSES } from '../../lib/constants';
+import { TASK_STATUS_COLORS, PRIORITY_COLORS } from '../../lib/constants';
 
 interface ModuleViewProps {
   onOpenTask: (taskId: string) => void;

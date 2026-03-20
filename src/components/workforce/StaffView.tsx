@@ -1,11 +1,38 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2, Save, Copy, ChevronLeft, ChevronRight, Star } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Loader2, Save, ChevronLeft, ChevronRight, Star, ChevronDown, ChevronUp, Target, Plus, Pencil, Trash2, Link2, X, Search } from 'lucide-react';
 import { supabase, DEFAULT_ORG_ID } from '../../lib/supabase';
-import type { Initiative, TeamMember, EffortLog } from '../../lib/supabase';
-import { saveEffortLog, saveUserPreference, deleteUserPreference } from '../../lib/mutations';
-import { fetchUserPreference } from '../../lib/queries';
+import type { Initiative, TeamMember, EffortLog, Goal } from '../../lib/supabase';
+import { saveEffortLog, saveUserPreference, deleteUserPreference, linkInitiativeToGoal, unlinkInitiativeFromGoal, deleteGoal } from '../../lib/mutations';
+import { fetchUserPreference, fetchGoalsForMember, fetchInitiativesForGoal, fetchInitiativesForMember } from '../../lib/queries';
 import { loadCapacityConfig, calculatePlannedHours, getCapacityThreshold } from '../../lib/workloadCalculator';
 import { ACTIVE_INITIATIVE_STATUSES, TYPE_COLORS } from '../../lib/constants';
+import GoalModal from '../modals/GoalModal';
+
+// ─── Goal helpers ───
+
+const LEVEL_COLORS: Record<string, string> = {
+  organization: '#8B2B6E',
+  team: '#3b82f6',
+  individual: '#22c55e',
+};
+
+const LEVEL_LABELS: Record<string, string> = {
+  organization: 'Org',
+  team: 'Team',
+  individual: 'Individual',
+};
+
+function calculateGoalProgress(linkedInitiatives: Initiative[]): number {
+  if (linkedInitiatives.length === 0) return 0;
+  let total = 0;
+  for (const init of linkedInitiatives) {
+    const s = (init.status || '').toLowerCase();
+    if (s === 'completed' || s === 'complete') total += 100;
+    else if (s === 'in progress' || s === 'in-progress') total += 50;
+    else if (s === 'on hold' || s === 'on-hold') total += 25;
+  }
+  return Math.round(total / linkedInitiatives.length);
+}
 
 function getWeekStart(date: Date): string {
   const d = new Date(date);
@@ -32,8 +59,19 @@ export default function StaffView() {
   const [editedHours, setEditedHours] = useState<Record<string, number>>({});
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
   const [plannedTotal, setPlannedTotal] = useState(0);
-  const [actualTotal, setActualTotal] = useState(0);
+  const [_actualTotal, setActualTotal] = useState(0);
   const [isFavorited, setIsFavorited] = useState(false);
+
+  // Goals section state
+  const [goalsExpanded, setGoalsExpanded] = useState(true);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [goalLinkedInits, setGoalLinkedInits] = useState<Record<string, Initiative[]>>({});
+  const [memberInitiatives, setMemberInitiatives] = useState<Initiative[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [linkSearchGoalId, setLinkSearchGoalId] = useState<string | null>(null);
+  const [linkSearchQuery, setLinkSearchQuery] = useState('');
 
   const STAFF_PREF_KEY = 'staffview_favorite_member';
 
@@ -64,6 +102,88 @@ export default function StaffView() {
       setIsFavorited(true);
     }
   }
+
+  // Load goals when selected member changes
+  useEffect(() => {
+    if (selectedSCI) {
+      loadGoals();
+    } else {
+      setGoals([]);
+      setGoalLinkedInits({});
+      setMemberInitiatives([]);
+    }
+  }, [selectedSCI]);
+
+  async function loadGoals() {
+    if (!selectedSCI) return;
+    setGoalsLoading(true);
+    try {
+      const [goalsData, memberInits] = await Promise.all([
+        fetchGoalsForMember(selectedSCI),
+        fetchInitiativesForMember(selectedSCI),
+      ]);
+      setGoals(goalsData);
+      setMemberInitiatives(memberInits);
+
+      // Load linked initiatives for each goal
+      const linksMap: Record<string, Initiative[]> = {};
+      await Promise.all(goalsData.map(async (goal) => {
+        const initIds = await fetchInitiativesForGoal(goal.id);
+        linksMap[goal.id] = memberInits.filter(i => initIds.includes(i.id));
+      }));
+      setGoalLinkedInits(linksMap);
+    } catch (err) {
+      console.error('Error loading goals:', err);
+    } finally {
+      setGoalsLoading(false);
+    }
+  }
+
+  async function handleLinkInitiative(goalId: string, initiativeId: string) {
+    try {
+      await linkInitiativeToGoal(initiativeId, goalId);
+      // Refresh linked initiatives for this goal
+      const initIds = await fetchInitiativesForGoal(goalId);
+      setGoalLinkedInits(prev => ({
+        ...prev,
+        [goalId]: memberInitiatives.filter(i => initIds.includes(i.id)),
+      }));
+      setLinkSearchGoalId(null);
+      setLinkSearchQuery('');
+    } catch (err) {
+      console.error('Link initiative error:', err);
+    }
+  }
+
+  async function handleUnlinkInitiative(goalId: string, initiativeId: string) {
+    try {
+      await unlinkInitiativeFromGoal(initiativeId, goalId);
+      setGoalLinkedInits(prev => ({
+        ...prev,
+        [goalId]: (prev[goalId] || []).filter(i => i.id !== initiativeId),
+      }));
+    } catch (err) {
+      console.error('Unlink initiative error:', err);
+    }
+  }
+
+  async function handleDeleteGoal(goalId: string) {
+    if (!confirm('Delete this goal? This cannot be undone.')) return;
+    try {
+      await deleteGoal(goalId);
+      setGoals(prev => prev.filter(g => g.id !== goalId));
+      setGoalLinkedInits(prev => {
+        const next = { ...prev };
+        delete next[goalId];
+        return next;
+      });
+    } catch (err) {
+      console.error('Delete goal error:', err);
+    }
+  }
+
+  const orgTeamGoals = useMemo(() => goals.filter(g => g.level === 'organization' || g.level === 'team'), [goals]);
+  const individualGoals = useMemo(() => goals.filter(g => g.level === 'individual'), [goals]);
 
   useEffect(() => {
     if (selectedSCI) loadMemberData();
@@ -185,21 +305,21 @@ export default function StaffView() {
             {scis.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
 
-          {/* Favorite button */}
-          {selectedSCI && (
-            <button
-              onClick={toggleStaffFavorite}
-              className="p-1.5 rounded-lg border transition-all"
-              style={{
-                borderColor: isFavorited ? '#f59e0b' : 'var(--border-default)',
-                backgroundColor: isFavorited ? '#f59e0b15' : 'transparent',
-                color: isFavorited ? '#f59e0b' : 'var(--text-muted)',
-              }}
-              title={isFavorited ? 'Remove favorite' : 'Set as favorite (auto-selects on load)'}
-            >
-              <Star size={16} fill={isFavorited ? '#f59e0b' : 'none'} />
-            </button>
-          )}
+          {/* Favorite button — always visible like WorkDash */}
+          <button
+            onClick={toggleStaffFavorite}
+            disabled={!selectedSCI}
+            className="p-1.5 rounded-lg border transition-all"
+            style={{
+              borderColor: isFavorited ? '#f59e0b' : 'var(--border-default)',
+              backgroundColor: isFavorited ? '#f59e0b15' : 'transparent',
+              color: isFavorited ? '#f59e0b' : 'var(--text-muted)',
+              opacity: selectedSCI ? 1 : 0.4,
+            }}
+            title={isFavorited ? 'Remove favorite (will no longer auto-select)' : 'Set as favorite (auto-selects on load)'}
+          >
+            <Star size={16} fill={isFavorited ? '#f59e0b' : 'none'} />
+          </button>
 
           {/* Week selector */}
           <div className="flex items-center gap-1">
@@ -317,6 +437,307 @@ export default function StaffView() {
           </button>
         </div>
       )}
+
+      {/* ─── Goals Section ─── */}
+      {selectedSCI && (
+        <div className="border-t" style={{ borderColor: 'var(--border-default)' }}>
+          {/* Collapsible header */}
+          <button
+            onClick={() => setGoalsExpanded(!goalsExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3"
+            style={{ backgroundColor: 'var(--bg-surface)' }}
+          >
+            <div className="flex items-center gap-2">
+              <Target size={16} style={{ color: 'var(--primary-brand-color)' }} />
+              <span className="text-sm font-semibold" style={{ color: 'var(--text-heading)' }}>
+                Goals ({goals.length})
+              </span>
+            </div>
+            {goalsExpanded ? <ChevronUp size={16} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />}
+          </button>
+
+          {goalsExpanded && (
+            <div className="px-4 pb-4 space-y-4" style={{ backgroundColor: 'var(--bg-page)' }}>
+              {goalsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-brand-color)' }} />
+                </div>
+              ) : (
+                <>
+                  {/* Organization & Team Goals */}
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                      Organization & Team Goals
+                    </h4>
+                    {orgTeamGoals.length === 0 ? (
+                      <p className="text-xs py-2" style={{ color: 'var(--text-muted)' }}>No organization or team goals set.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {orgTeamGoals.map(goal => {
+                          const linked = goalLinkedInits[goal.id] || [];
+                          const progress = calculateGoalProgress(linked);
+                          const levelColor = LEVEL_COLORS[goal.level] || '#6b7280';
+                          const isLinking = linkSearchGoalId === goal.id;
+                          const linkedIds = new Set(linked.map(i => i.id));
+                          const availableInits = memberInitiatives.filter(i => {
+                            if (linkedIds.has(i.id)) return false;
+                            if (!linkSearchQuery) return true;
+                            const q = linkSearchQuery.toLowerCase();
+                            return i.name.toLowerCase().includes(q) || i.display_id.toLowerCase().includes(q);
+                          }).slice(0, 8);
+
+                          return (
+                            <div key={goal.id} className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border-default)', backgroundColor: 'var(--bg-surface)' }}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className="text-sm font-bold" style={{ color: 'var(--text-heading)' }}>{goal.title}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0" style={{ color: levelColor, backgroundColor: `${levelColor}15`, border: `1px solid ${levelColor}30` }}>
+                                      {LEVEL_LABELS[goal.level]}
+                                    </span>
+                                  </div>
+                                  {goal.description && (
+                                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                      {goal.description}
+                                    </p>
+                                  )}
+                                </div>
+                                {goal.target_date && (
+                                  <span className="text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-surface-hover)' }}>
+                                    {new Date(goal.target_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Progress bar */}
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 rounded-full" style={{ backgroundColor: 'var(--border-default)' }}>
+                                  <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: progress >= 75 ? '#22c55e' : progress >= 40 ? '#f59e0b' : 'var(--primary-brand-color)' }} />
+                                </div>
+                                <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>{progress}%</span>
+                              </div>
+
+                              {/* Linked initiative chips */}
+                              <div className="flex flex-wrap items-center gap-1">
+                                {linked.map(init => (
+                                  <span key={init.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-surface-hover)', color: 'var(--text-body)' }}>
+                                    <span className="font-mono" style={{ color: TYPE_COLORS[init.type] || '#6b7280' }}>{init.display_id}</span>
+                                    {init.name.length > 25 ? init.name.slice(0, 25) + '...' : init.name}
+                                    <button onClick={() => handleUnlinkInitiative(goal.id, init.id)} className="ml-0.5 hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                      <X size={10} />
+                                    </button>
+                                  </span>
+                                ))}
+                                <button
+                                  onClick={() => { setLinkSearchGoalId(isLinking ? null : goal.id); setLinkSearchQuery(''); }}
+                                  className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                                  style={{ color: 'var(--primary-brand-color)', backgroundColor: isLinking ? `var(--primary-brand-color)15` : 'transparent' }}
+                                >
+                                  <Link2 size={10} />
+                                  Link Initiative
+                                </button>
+                              </div>
+
+                              {/* Link search dropdown */}
+                              {isLinking && (
+                                <div className="rounded-lg p-2 space-y-1.5" style={{ backgroundColor: 'var(--bg-surface-hover)' }}>
+                                  <div className="flex items-center gap-1.5">
+                                    <Search size={12} style={{ color: 'var(--text-muted)' }} />
+                                    <input
+                                      type="text"
+                                      value={linkSearchQuery}
+                                      onChange={e => setLinkSearchQuery(e.target.value)}
+                                      placeholder="Search by name or ID..."
+                                      className="flex-1 text-xs px-2 py-1 rounded border"
+                                      style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+                                      autoFocus
+                                    />
+                                    <button onClick={() => { setLinkSearchGoalId(null); setLinkSearchQuery(''); }} style={{ color: 'var(--text-muted)' }}>
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                  {availableInits.length === 0 ? (
+                                    <p className="text-xs px-2 py-1" style={{ color: 'var(--text-muted)' }}>No matching initiatives found.</p>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      {availableInits.map(init => (
+                                        <button
+                                          key={init.id}
+                                          onClick={() => handleLinkInitiative(goal.id, init.id)}
+                                          className="w-full text-left text-xs px-2 py-1.5 rounded flex items-center gap-2 transition-colors"
+                                          style={{ color: 'var(--text-body)' }}
+                                          onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-brand-color)'; e.currentTarget.style.color = 'white'; }}
+                                          onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-body)'; }}
+                                        >
+                                          <span className="font-mono" style={{ color: TYPE_COLORS[init.type] || '#6b7280' }}>{init.display_id}</span>
+                                          <span className="flex-1 truncate">{init.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* My Individual Goals */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                        My Individual Goals
+                      </h4>
+                      <button
+                        onClick={() => { setEditingGoal(null); setGoalModalOpen(true); }}
+                        className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg font-medium"
+                        style={{ color: 'var(--primary-brand-color)', backgroundColor: `var(--primary-brand-color)08` }}
+                      >
+                        <Plus size={12} />
+                        New Goal
+                      </button>
+                    </div>
+                    {individualGoals.length === 0 ? (
+                      <p className="text-xs py-2" style={{ color: 'var(--text-muted)' }}>No individual goals yet. Click "+ New Goal" to create one.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {individualGoals.map(goal => {
+                          const linked = goalLinkedInits[goal.id] || [];
+                          const progress = calculateGoalProgress(linked);
+                          const levelColor = LEVEL_COLORS[goal.level] || '#6b7280';
+                          const isLinking = linkSearchGoalId === goal.id;
+                          const linkedIds = new Set(linked.map(i => i.id));
+                          const availableInits = memberInitiatives.filter(i => {
+                            if (linkedIds.has(i.id)) return false;
+                            if (!linkSearchQuery) return true;
+                            const q = linkSearchQuery.toLowerCase();
+                            return i.name.toLowerCase().includes(q) || i.display_id.toLowerCase().includes(q);
+                          }).slice(0, 8);
+
+                          return (
+                            <div key={goal.id} className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border-default)', backgroundColor: 'var(--bg-surface)' }}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className="text-sm font-bold" style={{ color: 'var(--text-heading)' }}>{goal.title}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0" style={{ color: levelColor, backgroundColor: `${levelColor}15`, border: `1px solid ${levelColor}30` }}>
+                                      {LEVEL_LABELS[goal.level]}
+                                    </span>
+                                  </div>
+                                  {goal.description && (
+                                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                      {goal.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {goal.target_date && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded mr-1" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-surface-hover)' }}>
+                                      {new Date(goal.target_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </span>
+                                  )}
+                                  <button onClick={() => { setEditingGoal(goal); setGoalModalOpen(true); }} className="p-1 rounded hover:opacity-70" style={{ color: 'var(--text-muted)' }} title="Edit goal">
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button onClick={() => handleDeleteGoal(goal.id)} className="p-1 rounded hover:opacity-70" style={{ color: 'var(--color-danger, #ef4444)' }} title="Delete goal">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress bar */}
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 rounded-full" style={{ backgroundColor: 'var(--border-default)' }}>
+                                  <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: progress >= 75 ? '#22c55e' : progress >= 40 ? '#f59e0b' : 'var(--primary-brand-color)' }} />
+                                </div>
+                                <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>{progress}%</span>
+                              </div>
+
+                              {/* Linked initiative chips */}
+                              <div className="flex flex-wrap items-center gap-1">
+                                {linked.map(init => (
+                                  <span key={init.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-surface-hover)', color: 'var(--text-body)' }}>
+                                    <span className="font-mono" style={{ color: TYPE_COLORS[init.type] || '#6b7280' }}>{init.display_id}</span>
+                                    {init.name.length > 25 ? init.name.slice(0, 25) + '...' : init.name}
+                                    <button onClick={() => handleUnlinkInitiative(goal.id, init.id)} className="ml-0.5 hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                      <X size={10} />
+                                    </button>
+                                  </span>
+                                ))}
+                                <button
+                                  onClick={() => { setLinkSearchGoalId(isLinking ? null : goal.id); setLinkSearchQuery(''); }}
+                                  className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                                  style={{ color: 'var(--primary-brand-color)', backgroundColor: isLinking ? `var(--primary-brand-color)15` : 'transparent' }}
+                                >
+                                  <Link2 size={10} />
+                                  Link Initiative
+                                </button>
+                              </div>
+
+                              {/* Link search dropdown */}
+                              {isLinking && (
+                                <div className="rounded-lg p-2 space-y-1.5" style={{ backgroundColor: 'var(--bg-surface-hover)' }}>
+                                  <div className="flex items-center gap-1.5">
+                                    <Search size={12} style={{ color: 'var(--text-muted)' }} />
+                                    <input
+                                      type="text"
+                                      value={linkSearchQuery}
+                                      onChange={e => setLinkSearchQuery(e.target.value)}
+                                      placeholder="Search by name or ID..."
+                                      className="flex-1 text-xs px-2 py-1 rounded border"
+                                      style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+                                      autoFocus
+                                    />
+                                    <button onClick={() => { setLinkSearchGoalId(null); setLinkSearchQuery(''); }} style={{ color: 'var(--text-muted)' }}>
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                  {availableInits.length === 0 ? (
+                                    <p className="text-xs px-2 py-1" style={{ color: 'var(--text-muted)' }}>No matching initiatives found.</p>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      {availableInits.map(init => (
+                                        <button
+                                          key={init.id}
+                                          onClick={() => handleLinkInitiative(goal.id, init.id)}
+                                          className="w-full text-left text-xs px-2 py-1.5 rounded flex items-center gap-2 transition-colors"
+                                          style={{ color: 'var(--text-body)' }}
+                                          onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-brand-color)'; e.currentTarget.style.color = 'white'; }}
+                                          onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-body)'; }}
+                                        >
+                                          <span className="font-mono" style={{ color: TYPE_COLORS[init.type] || '#6b7280' }}>{init.display_id}</span>
+                                          <span className="flex-1 truncate">{init.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Goal Modal */}
+      <GoalModal
+        isOpen={goalModalOpen}
+        onClose={() => { setGoalModalOpen(false); setEditingGoal(null); }}
+        onSaved={() => { setGoalModalOpen(false); setEditingGoal(null); loadGoals(); }}
+        editingGoal={editingGoal}
+        forceLevel="individual"
+        defaultOwner={selectedName || ''}
+        defaultMemberId={selectedSCI}
+      />
     </div>
   );
 }

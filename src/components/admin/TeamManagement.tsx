@@ -92,10 +92,11 @@ export default function TeamManagement() {
     });
   };
 
-  const getRoleLabel = (role: string) => {
+  const _getRoleLabel = (role: string) => {
     const found = TEAM_MEMBER_ROLES.find(r => r.key === role);
     return found ? found.label : role;
   };
+  void _getRoleLabel; // suppress unused warning
 
   const getRoleShortLabel = (role: string): string => {
     switch (role) {
@@ -370,6 +371,7 @@ function MemberFormPanel({
     role: member?.role || 'sci',
     manager_id: member?.manager_id || '',
     title: member?.title || '',
+    hourly_rate: member?.hourly_rate ?? 75,
     is_active: member?.is_active ?? true,
   });
 
@@ -394,6 +396,7 @@ function MemberFormPanel({
         manager_id: form.manager_id || undefined,
         email: form.email || undefined,
         title: form.title || undefined,
+        hourly_rate: form.hourly_rate || undefined,
       };
       if (isEdit && member) {
         await updateTeamMember(member.id, payload);
@@ -446,10 +449,20 @@ function MemberFormPanel({
             <input type="email" value={form.email || ''} onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))}
               className="w-full px-3 py-2 rounded-lg border text-sm" style={inputStyle} placeholder="email@example.com" />
           </div>
-          <div>
-            <label style={labelStyle}>Title</label>
-            <input type="text" value={form.title || ''} onChange={(e) => setForm(p => ({ ...p, title: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border text-sm" style={inputStyle} placeholder="Job title" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label style={labelStyle}>Title</label>
+              <input type="text" value={form.title || ''} onChange={(e) => setForm(p => ({ ...p, title: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border text-sm" style={inputStyle} placeholder="Job title" />
+            </div>
+            <div>
+              <label style={labelStyle}>Hourly Rate</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: 'var(--text-muted)' }}>$</span>
+                <input type="number" value={form.hourly_rate ?? ''} onChange={(e) => setForm(p => ({ ...p, hourly_rate: parseFloat(e.target.value) || 0 }))}
+                  className="w-full pl-7 pr-3 py-2 rounded-lg border text-sm" style={inputStyle} placeholder="75.00" step="0.50" min="0" />
+              </div>
+            </div>
           </div>
           <div>
             <label style={labelStyle}>Role *</label>

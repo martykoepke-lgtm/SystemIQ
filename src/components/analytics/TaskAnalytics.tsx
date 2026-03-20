@@ -31,12 +31,6 @@ export default function TaskAnalytics() {
 
   const analysts = useMemo(() => members.filter(m => m.role === 'analyst'), [members]);
   const modules = useMemo(() => ['All', ...new Set(tasks.map(t => t.module).filter(Boolean) as string[])].sort(), [tasks]);
-  const initNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const i of initiatives) map.set(i.id, `${i.display_id} ${i.name}`);
-    return map;
-  }, [initiatives]);
-
   const filtered = useMemo(() => {
     let items = tasks;
     if (moduleFilter !== 'All') items = items.filter(t => t.module === moduleFilter);

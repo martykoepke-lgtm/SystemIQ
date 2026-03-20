@@ -406,6 +406,7 @@ export interface CreateTeamMemberInput {
   role: string;
   manager_id?: string;
   title?: string;
+  hourly_rate?: number;
 }
 
 export async function createTeamMember(input: CreateTeamMemberInput) {
@@ -602,4 +603,172 @@ export async function promotePipelineItem(pipelineItemId: string, initiativeData
     .eq('id', pipelineItemId);
 
   return initiative;
+}
+
+// ─── Initiative Outcome Metrics ───
+
+export interface CreateInitiativeMetricInput {
+  initiative_id: string;
+  metric_name: string;
+  unit: string;
+  baseline_value?: number | null;
+  baseline_date?: string | null;
+  baseline_timeframe?: string | null;
+  target_value?: number | null;
+  result_value?: number | null;
+  result_date?: string | null;
+  result_timeframe?: string | null;
+  notes?: string | null;
+}
+
+export async function createInitiativeMetric(input: CreateInitiativeMetricInput) {
+  const { data, error } = await supabase
+    .from('initiative_metrics')
+    .insert({
+      organization_id: DEFAULT_ORG_ID,
+      ...input,
+      baseline_value: input.baseline_value ?? null,
+      baseline_date: input.baseline_date || null,
+      baseline_timeframe: input.baseline_timeframe || null,
+      target_value: input.target_value ?? null,
+      result_value: input.result_value ?? null,
+      result_date: input.result_date || null,
+      result_timeframe: input.result_timeframe || null,
+      notes: input.notes || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateInitiativeMetric(id: string, updates: Partial<CreateInitiativeMetricInput>) {
+  const { error } = await supabase
+    .from('initiative_metrics')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteInitiativeMetric(id: string) {
+  const { error } = await supabase
+    .from('initiative_metrics')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Stakeholders ───
+
+export interface CreateStakeholderInput {
+  name: string;
+  title?: string;
+  email?: string;
+  department?: string;
+}
+
+export async function createStakeholder(input: CreateStakeholderInput) {
+  const { data, error } = await supabase
+    .from('stakeholders')
+    .insert({ organization_id: DEFAULT_ORG_ID, ...input })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateStakeholder(id: string, updates: Partial<CreateStakeholderInput>) {
+  const { data, error } = await supabase
+    .from('stakeholders')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteStakeholder(id: string) {
+  const { error } = await supabase.from('stakeholders').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function addStakeholderToInitiative(initiativeId: string, stakeholderId: string, role?: string) {
+  const { data, error } = await supabase
+    .from('initiative_stakeholders')
+    .insert({
+      initiative_id: initiativeId,
+      stakeholder_id: stakeholderId,
+      role: role || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeStakeholderFromInitiative(pivotId: string) {
+  const { error } = await supabase.from('initiative_stakeholders').delete().eq('id', pivotId);
+  if (error) throw error;
+}
+
+export async function updateStakeholderRole(pivotId: string, role: string) {
+  const { error } = await supabase
+    .from('initiative_stakeholders')
+    .update({ role })
+    .eq('id', pivotId);
+  if (error) throw error;
+}
+
+// ─── Goals ───
+
+export interface CreateGoalInput {
+  title: string;
+  description?: string;
+  level: 'organization' | 'team' | 'individual';
+  owner_name?: string;
+  team_member_id?: string | null;
+  target_date?: string;
+  status?: string;
+}
+
+export async function createGoal(input: CreateGoalInput) {
+  const payload = cleanInput({ organization_id: DEFAULT_ORG_ID, ...input });
+  const { data, error } = await supabase
+    .from('goals')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateGoal(id: string, updates: Partial<CreateGoalInput>) {
+  const { error } = await supabase
+    .from('goals')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteGoal(id: string) {
+  const { error } = await supabase.from('goals').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function linkInitiativeToGoal(initiativeId: string, goalId: string) {
+  const { error } = await supabase
+    .from('initiative_goals')
+    .insert({ initiative_id: initiativeId, goal_id: goalId })
+    .select();
+  if (error) throw error;
+}
+
+export async function unlinkInitiativeFromGoal(initiativeId: string, goalId: string) {
+  const { error } = await supabase
+    .from('initiative_goals')
+    .delete()
+    .eq('initiative_id', initiativeId)
+    .eq('goal_id', goalId);
+  if (error) throw error;
 }

@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
-import { fetchSCIs, fetchInitiativesForMember, fetchAllTasks } from '../../lib/queries';
+import { fetchSCIs, fetchInitiativesForMember, fetchAllTasks, fetchInitiatives } from '../../lib/queries';
 import { fetchMemberWeeklyEffort } from '../../lib/analyticsEngine';
-import { calculateMemberCapacity, type MemberCapacity } from '../../lib/workloadCalculator';
-import type { TeamMember, Initiative, Task } from '../../lib/supabase';
+import { loadCapacityConfig, calculateMemberCapacity, type MemberCapacity } from '../../lib/workloadCalculator';
+import { supabase, DEFAULT_ORG_ID } from '../../lib/supabase';
+import type { TeamMember, Initiative, Task, EffortLog } from '../../lib/supabase';
 import { TYPE_COLORS, OPEN_TASK_STATUSES, getCapacityColor, getCapacityLabel } from '../../lib/constants';
 
 export default function ResourceView() {
@@ -28,20 +29,45 @@ export default function ResourceView() {
   useEffect(() => {
     if (!selectedId) return;
     setDataLoading(true);
-    Promise.all([
-      calculateMemberCapacity(selectedId),
-      fetchInitiativesForMember(selectedId),
-      fetchMemberWeeklyEffort(selectedId, 8),
-      fetchAllTasks(),
-    ]).then(([cap, inits, effort, allTasks]) => {
-      setCapacity(cap);
-      setInitiatives(inits);
-      setWeeklyEffort(effort);
-      // Filter tasks where this person is SCI on the initiative
-      const initIds = new Set(inits.map(i => i.id));
-      setTasks(allTasks.filter(t => initIds.has(t.initiative_id)));
-    }).finally(() => setDataLoading(false));
-  }, [selectedId]);
+
+    async function loadData() {
+      try {
+        const [inits, effort, allTasks, allInits, config] = await Promise.all([
+          fetchInitiativesForMember(selectedId),
+          fetchMemberWeeklyEffort(selectedId, 8),
+          fetchAllTasks(),
+          fetchInitiatives(),
+          loadCapacityConfig(),
+        ]);
+
+        // Fetch all effort logs for capacity calculation
+        const { data: allLogs } = await supabase
+          .from('effort_logs')
+          .select('*')
+          .eq('organization_id', DEFAULT_ORG_ID);
+
+        setInitiatives(inits);
+        setWeeklyEffort(effort);
+
+        // Filter tasks where this person is SCI on the initiative
+        const initIds = new Set(inits.map(i => i.id));
+        setTasks(allTasks.filter(t => initIds.has(t.initiative_id)));
+
+        // Calculate capacity properly
+        const member = scis.find(s => s.id === selectedId);
+        if (member) {
+          const cap = await calculateMemberCapacity(member, allInits, (allLogs || []) as EffortLog[], config);
+          setCapacity(cap);
+        }
+      } catch (err) {
+        console.warn('ResourceView load error:', err);
+      } finally {
+        setDataLoading(false);
+      }
+    }
+
+    loadData();
+  }, [selectedId, scis]);
 
   // Work type breakdown from initiatives
   const workTypeBreakdown = useMemo(() => {

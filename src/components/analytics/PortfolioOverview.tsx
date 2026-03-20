@@ -15,6 +15,8 @@ export default function PortfolioOverview() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [sciFilter, setSciFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('display_id');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -44,8 +46,13 @@ export default function PortfolioOverview() {
   const filtered = useMemo(() => {
     let items = initiatives;
     if (typeFilter !== 'All') items = items.filter(i => i.type === typeFilter);
+    if (statusFilter !== 'All') items = items.filter(i => i.status === statusFilter);
+    if (sciFilter) items = items.filter(i => i.primary_sci_id === sciFilter);
     return items;
-  }, [initiatives, typeFilter]);
+  }, [initiatives, typeFilter, statusFilter, sciFilter]);
+
+  const statuses = useMemo(() => ['All', ...new Set(initiatives.map(i => i.status))], [initiatives]);
+  const scis = useMemo(() => members.filter(m => m.role === 'sci' || m.role === 'mi').sort((a, b) => a.name.localeCompare(b.name)), [members]);
 
   // KPI calculations
   const activeCount = initiatives.filter(i => ACTIVE_INITIATIVE_STATUSES.has(i.status)).length;
@@ -95,17 +102,36 @@ export default function PortfolioOverview() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      {/* Filter */}
-      <div className="flex items-center gap-3">
-        <label className="text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Type</label>
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-sm"
-          style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
-        >
-          {types.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Type</label>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+            className="px-2 py-1 rounded-lg border text-sm" style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}>
+            {types.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Status</label>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="px-2 py-1 rounded-lg border text-sm" style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}>
+            {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>SCI</label>
+          <select value={sciFilter} onChange={e => setSciFilter(e.target.value)}
+            className="px-2 py-1 rounded-lg border text-sm" style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}>
+            <option value="">All SCIs</option>
+            {scis.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        {(typeFilter !== 'All' || statusFilter !== 'All' || sciFilter) && (
+          <button onClick={() => { setTypeFilter('All'); setStatusFilter('All'); setSciFilter(''); }}
+            className="text-xs px-2 py-1 rounded" style={{ color: 'var(--color-danger)' }}>
+            Clear Filters
+          </button>
+        )}
       </div>
 
       {/* KPI Cards */}
